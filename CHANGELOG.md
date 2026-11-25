@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Release verification failures, including timeouts, name the resume phase
+  in JSON; failed checks are named even in quiet mode.
+- Claude Code setup keeps inherited Git command settings such as proxy and
+  CA options while replacing command-scoped URL rewrites.
+
 - Derive the telemetry configuration path from Punt's shared home resolver
   without moving the existing `~/.punt-labs/punt/config.toml` (PL-1450).
 
@@ -58,6 +63,9 @@ All notable changes to this project will be documented in this file.
 - Move checkout actions to `punt repo init`, `punt repo audit`,
   `punt repo scan-pii`, and `punt repo seed`, and releases to
   `punt release run`. The old flat spellings are not supported.
+
+- Staged PII scans read default rules from regular files in the Git index,
+  and seeding a Makefile for an unsupported project type fails explicitly.
 
 - The [CLI standard](standards/cli.md) defines approved command maps,
   finite JSON results, remote target selection, and per-command success.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -45,8 +46,9 @@ def test_quiet_json_release_reports_the_unexpected_failure(
     assert "disk full" in json.loads(result.stdout)["error"]
 
 
+@pytest.mark.parametrize("times_out", [False, True])
 def test_quiet_json_release_reports_failed_verification_and_resume(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, times_out: bool
 ) -> None:
     project = make_release_project(tmp_path)
     monkeypatch.setattr("shutil.which", fake_which)
@@ -55,6 +57,9 @@ def test_quiet_json_release_reports_failed_verification_and_resume(
             Phase11Verify,
             "_local_checks",
             return_value=[VerificationCheck("Git tag", False, "not found")],
+            side_effect=subprocess.TimeoutExpired(["git", "tag"], 30)
+            if times_out
+            else None,
         ),
         patch.object(Phase11Verify, "_remote_slug", return_value=(None, [])),
         patch.object(Phase11Verify, "_pypi_checks", return_value=[]),
@@ -76,7 +81,7 @@ def test_quiet_json_release_reports_failed_verification_and_resume(
 
     assert result.exit_code == 1
     report = json.loads(result.stdout)
-    assert "Git tag" in report["error"]
+    assert ("did not return within 30s" if times_out else "Git tag") in report["error"]
     assert report["resume_from"] == "verify"
 
 

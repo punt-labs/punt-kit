@@ -743,8 +743,8 @@ def run_release(
         # advice that is not actionable, and resuming from the wrong phase
         # skips a gate.
         failure = ReleasePipeline.print_timeout(exc, current_phase_num, _resume_at())
-        ReleasePipeline.print_manual_actions(_skips)
-        raise CommandFailure(failure) from None
+        details = _print_incomplete_release(current_phase_num, _resume_at())
+        raise CommandFailure(failure, details) from None
     except Exception as exc:
         # System boundary: whatever escaped a phase (a missing tool, a parse
         # error in a file a check read, a bug) must not leave the operator with
