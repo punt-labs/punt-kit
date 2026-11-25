@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Self, final
+from typing import TYPE_CHECKING, Self, final
 
 from punt_observe.telemetry import BoolAttr, EnumAttr, SignalSchema, open_telemetry
 
@@ -50,9 +50,9 @@ class CommandSpan:
         )
 
     @staticmethod
-    def _invoke(
-        invoke: Callable[[], Any], command: str, standalone_mode: bool
-    ) -> tuple[Any, SystemExit | None]:
+    def _invoke[T](
+        invoke: Callable[[], T], command: str, standalone_mode: bool
+    ) -> tuple[T | None, SystemExit | None]:
         outcome = "error"
         exit_code = 1
         try:
@@ -76,14 +76,14 @@ class CommandSpan:
                 exit_code,
             )
 
-    def record(self, invoke: Callable[[], Any], *, standalone_mode: bool) -> Any:
+    def record[T](self, invoke: Callable[[], T], *, standalone_mode: bool) -> T | None:
         """Run the command while recording its bounded outcome."""
         command = self._command
         telemetry = open_telemetry(
             "punt", [self._schema], config=PuntPaths.telemetry_config()
         )
         successful_exit: SystemExit | None = None
-        result: Any = None
+        result: T | None = None
         try:
             try:
                 with telemetry.span(
