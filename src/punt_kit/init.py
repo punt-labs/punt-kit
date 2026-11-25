@@ -300,7 +300,7 @@ def _init_workflows(info: ProjectInfo) -> list[str]:
             rel = _relpath(target_path, info.root)
             console.print(
                 f"  [yellow]⚠[/yellow] {rel} differs from template"
-                " — use [bold]/punt reconcile[/bold] to review"
+                " — use [bold]/punt:reconcile[/bold] to review"
             )
             continue
         else:
@@ -380,7 +380,7 @@ def _build_quality_gates(info: ProjectInfo) -> str:
     if info.language == "python":
         return (
             "uv run ruff check . && uv run ruff format --check . "
-            "&& uv run mypy src/ tests/ && uv run pyright && uv run pytest"
+            "&& uv run mypy src/ tests/ && uv run pyright src/ tests/ && uv run pytest"
         )
     if info.language == "swift":
         return "make format && make lint && make test"

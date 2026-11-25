@@ -141,6 +141,8 @@ for f in .github/workflows/lint.yml .github/workflows/test.yml .github/workflows
     .github/workflows/release.yml .claude/settings.json CLAUDE.md; do
     [ -s "$f" ] || fail "punt repo init did not create $f"
 done
+grep -qF '/punt:reconcile' CLAUDE.md || fail "generated guide uses the wrong plugin command"
+grep -qF 'uv run pyright src/ tests/' CLAUDE.md || fail "generated guide and CI disagree on type-check scope"
 grep -q '^  published-smoke:$' .github/workflows/release.yml \
     || fail "scaffolded release.yml has no published-smoke job"
 # shellcheck disable=SC2016 # the literal workflow text, not an expansion

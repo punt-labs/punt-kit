@@ -35,4 +35,4 @@ punt repo init $ARGUMENTS
 
 Report the output to the user. Explain what files were generated and what manual steps remain.
 
-If the user wants contextual reconciliation (workflow diffing, CLAUDE.md quality review, permission cleanup), suggest `/punt reconcile` as the next step.
+If the user wants contextual reconciliation (workflow diffing, CLAUDE.md quality review, permission cleanup), suggest `/punt:reconcile` as the next step.
