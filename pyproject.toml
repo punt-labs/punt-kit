@@ -14,6 +14,7 @@ dependencies = [
     "typer>=0.29.1,<0.30",
     "rich>=13.0.0",
     "tomli-w>=1.0.0",
+    "tomlkit>=0.14.0",
     "jinja2>=3.1.0",
     "markdown-it-py>=3.0.0",
     "packaging>=24.0",
@@ -172,7 +173,9 @@ application = [
     "punt_kit.phases.shared.pipeline",
     "punt_kit.phases.shared.project_remote",
     "punt_kit.phases.shared.readme_sha",
+    "punt_kit.phases.shared.release_versions",
     "punt_kit.phases.shared.skips",
+    "punt_kit.phases.shared.workspace_versions",
 ]
 domain = [
     "punt_kit",

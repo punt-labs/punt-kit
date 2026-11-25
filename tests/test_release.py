@@ -818,6 +818,64 @@ def test_version_bump_dry_run_no_changes(tmp_path: Path) -> None:
     assert 'version = "0.1.0"' in content
 
 
+@pytest.mark.usefixtures("isolated_uv")
+@pytest.mark.parametrize("resume", [False, True], ids=["fresh", "resume"])
+def test_version_bump_locks_and_commits_workspace_members(
+    tmp_path: Path, resume: bool
+) -> None:
+    root = _make_release_project(tmp_path)
+    pyproject = root / "pyproject.toml"
+    pyproject.write_text(
+        pyproject.read_text().replace(
+            "[project.scripts]",
+            'dependencies = ["client==0.1.0", "service==0.1.0"]\n\n[project.scripts]',
+        )
+        + '\n[tool.uv.workspace]\nmembers = ["packages/*"]\n'
+        + "[tool.uv.sources]\n"
+        + "client = { workspace = true }\nservice = { workspace = true }\n"
+    )
+    manifests = [pyproject]
+    for name in ("client", "service"):
+        path = root / "packages" / name / "pyproject.toml"
+        path.parent.mkdir(parents=True)
+        path.write_text(f'[project]\nname = "{name}"\nversion = "0.1.0"\n')
+        manifests.append(path)
+    unmanaged = root / "packages" / "unmanaged" / "pyproject.toml"
+    unmanaged.parent.mkdir()
+    unmanaged_text = (
+        '[project]\nname = "unmanaged"\nversion = "0.1.0"\n'
+        '[tool.uv]\nmanaged = false\ndev-dependencies = ["client==0.1.0"]\n'
+    )
+    unmanaged.write_text(unmanaged_text)
+
+    subprocess.run(["uv", "lock", "--offline"], cwd=root, check=True)
+    _commit_all(root, "add workspace")
+    info = detect(root)
+    before = [path.read_bytes() for path in manifests]
+
+    _phase2_version_bump(info, "0.2.0", dry_run=True)
+    assert [path.read_bytes() for path in manifests] == before
+
+    if resume:
+        _git(["checkout", "-b", "release/v0.2.0"], cwd=str(root))
+        for path in manifests[:2]:
+            path.write_text(
+                path.read_text().replace('version = "0.1.0"', 'version = "0.2.0"')
+            )
+
+    _phase2_version_bump(info, "0.2.0", dry_run=False)
+
+    for path in manifests:
+        assert 'version = "0.2.0"' in path.read_text()
+    assert 'dependencies = ["client==0.2.0", "service==0.2.0"]' in pyproject.read_text()
+    assert {str(path.relative_to(root)) for path in manifests} | {"uv.lock"} <= set(
+        _commit_files(root)
+    )
+    assert str(unmanaged.relative_to(root)) not in _commit_files(root)
+    assert unmanaged.read_text() == unmanaged_text
+    subprocess.run(["uv", "lock", "--check", "--offline"], cwd=root, check=True)
+
+
 def _commit_files(root: Path, ref: str = "HEAD") -> list[str]:
     """Return the files changed by a commit."""
     result = subprocess.run(

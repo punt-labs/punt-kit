@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `punt release run` bumps uv workspace members that share the root version
+  and updates their matching exact dependency pins before refreshing `uv.lock`.
 - Release verification failures, including timeouts, name the resume phase
   in JSON; failed checks are named even in quiet mode.
 - Claude Code setup keeps inherited Git command settings such as proxy and

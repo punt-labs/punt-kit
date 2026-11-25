@@ -190,7 +190,9 @@ With `--staged`, the default rules must be regular files in the Git index. An ex
 
 ### Release Options
 
-`punt release run` installs the published package the way users install it, and can keep a Homebrew tap up to date. A project turns on each part:
+`punt release run` bumps uv workspace members that share the root version in Phase 2. It updates matching exact dependency pins before refreshing `uv.lock` and includes the affected member manifests in the release commit.
+
+The release also installs the published package the way users install it and can keep a Homebrew tap up to date. A project turns on each part:
 
 | Option | Effect |
 |--------|--------|
