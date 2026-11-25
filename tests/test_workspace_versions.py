@@ -39,6 +39,9 @@ extras = ['client-lib==1.0']
 dev = ["client-lib==1.0.0", { include-group = "test" }]
 test = []
 
+[tool.uv]
+dev-dependencies = ["client-lib==1.0.0", "separate==1.0.0"]
+
 [tool.uv.workspace]
 members = ["pkg/*"]
 exclude = ["pkg/excluded"]
@@ -81,6 +84,10 @@ dependencies = ["client-lib==1.0.0"]
         .replace("Client_LIB[extra] == 1.0.0", "Client_LIB[extra] == 2.0.0")
         .replace("extras = ['client-lib==1.0']", "extras = ['client-lib==2.0.0']")
         .replace('dev = ["client-lib==1.0.0",', 'dev = ["client-lib==2.0.0",')
+        .replace(
+            'dev-dependencies = ["client-lib==1.0.0",',
+            'dev-dependencies = ["client-lib==2.0.0",',
+        )
         .replace("\n", "\r\n")
     )
     assert rewrites[paths["client-lib"]] == (

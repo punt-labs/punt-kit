@@ -114,6 +114,11 @@ class WorkspaceVersions:
                 for value in group.values():
                     if isinstance(value, Array):
                         yield value
+        tool = WorkspaceVersions._table(cast("_Table", document).get("tool"))
+        uv = WorkspaceVersions._table(tool.get("uv")) if tool is not None else None
+        legacy = uv.get("dev-dependencies") if uv is not None else None
+        if isinstance(legacy, Array):
+            yield legacy
 
     @staticmethod
     def _replace_string(original: String, new: str) -> String:
