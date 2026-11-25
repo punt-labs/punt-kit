@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import tomllib
 from typing import TYPE_CHECKING
 
@@ -133,6 +135,35 @@ def test_exclude_matches_nested_workspace_paths(tmp_path: Path, exclude: str) ->
     )
     assert workspace is not None
     assert workspace.rewrites(text, "1.0.0", "2.0.0", lambda _: None).keys() == expected
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not installed")
+@pytest.mark.parametrize("exclude", ["packages/*-skip", "packages/**/*-skip"])
+def test_workspace_exclusions_match_uv_lock(tmp_path: Path, exclude: str) -> None:
+    root = tmp_path / "pyproject.toml"
+    text = (
+        '[project]\nname = "root"\nversion = "1.0.0"\n'
+        '[tool.uv.workspace]\nmembers = ["packages/*-skip", "packages/nested/*"]\n'
+        f'exclude = ["{exclude}"]\n'
+    )
+    root.write_text(text)
+    names = {root: "root"}
+    for relative in ("direct-skip", "nested/nested-skip", "nested/keep"):
+        manifest = tmp_path / "packages" / relative / "pyproject.toml"
+        manifest.parent.mkdir(parents=True)
+        name = manifest.parent.name
+        manifest.write_text(f'[project]\nname = "{name}"\nversion = "1.0.0"\n')
+        names[manifest] = name
+
+    subprocess.run(["uv", "lock", "--offline"], cwd=tmp_path, check=True)
+    lock = tomllib.loads((tmp_path / "uv.lock").read_text())
+    locked = {package["name"] for package in lock["package"]}
+    workspace = WorkspaceVersions.from_manifest(
+        tmp_path, tomllib.loads(text), read=lambda path: path.read_text()
+    )
+    assert workspace is not None
+    rewrites = workspace.rewrites(text, "1.0.0", "2.0.0", lambda _: None)
+    assert {names[path] for path in rewrites} == locked == {"root", "keep"}
 
 
 def test_equivalent_member_version_shares_the_root_release(tmp_path: Path) -> None:
