@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from unittest.mock import patch
 
@@ -15,6 +16,7 @@ from punt_kit.install import InstallError, PluginInstaller
 runner = CliRunner()
 
 
+@pytest.mark.skipif(shutil.which("git") is None, reason="requires Git")
 def test_install_ignores_inherited_git_rewrite(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GIT_CONFIG_COUNT", "3")
     monkeypatch.setenv("GIT_CONFIG_KEY_0", "url.https://elsewhere.invalid/.insteadOf")
@@ -31,12 +33,12 @@ def test_install_ignores_inherited_git_rewrite(monkeypatch: pytest.MonkeyPatch) 
         b"",
         b'[{"id":"punt@punt-labs","scope":"user"}]',
     )
-    with patch(
-        "punt_kit.install.subprocess.run",
-        side_effect=[subprocess.CompletedProcess([], 0, report) for report in reports],
-    ) as claude:
+    with patch("punt_kit.install.subprocess") as child:
+        child.run.side_effect = [
+            subprocess.CompletedProcess([], 0, report) for report in reports
+        ]
         assert not PluginInstaller("/bin/claude").run().error
-    env = claude.call_args.kwargs["env"]
+    env = child.run.call_args.kwargs["env"]
 
     assert {
         key: value

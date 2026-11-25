@@ -11,6 +11,7 @@ import pytest
 from typer.testing import CliRunner
 
 from punt_kit.__main__ import app
+from punt_kit.errors import ReleaseError
 from punt_kit.phases.phase11_checks import VerificationCheck
 from punt_kit.phases.phase11_verify import Phase11Verify
 from tests.helpers import fake_which, make_release_project
@@ -83,6 +84,43 @@ def test_quiet_json_release_reports_failed_verification_and_resume(
     report = json.loads(result.stdout)
     assert ("did not return within 30s" if times_out else "Git tag") in report["error"]
     assert report["resume_from"] == "verify"
+
+
+def test_json_verification_failure_resumes_at_earlier_propagation_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = make_release_project(tmp_path)
+    monkeypatch.setattr("shutil.which", fake_which)
+    with (
+        patch(
+            "punt_kit.release._phase10_propagate",
+            side_effect=ReleaseError("marketplace update failed"),
+        ),
+        patch(
+            "punt_kit.release._phase11_verify",
+            side_effect=ReleaseError("Git tag not found"),
+        ),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "release",
+                "run",
+                "-q",
+                "--json",
+                "--path",
+                str(project),
+                "0.2.0",
+                "--resume-from",
+                "propagate",
+            ],
+        )
+
+    assert result.exit_code == 1
+    assert json.loads(result.stdout) == {
+        "error": "Git tag not found",
+        "resume_from": "propagate",
+    }
 
 
 @pytest.mark.parametrize(

@@ -24,12 +24,10 @@ class MarketplaceGitEnvironment:
 
     def prepare(self) -> dict[str, str]:
         """Return the marketplace subprocess environment."""
-        env = self._inherited.copy()
-        parameters = env.pop("GIT_CONFIG_PARAMETERS", "")
-        pairs = self._indexed_settings(env)
-        if parameters:
-            pairs.extend(self._git_parameters(parameters))
-        pairs = [pair for pair in pairs if not self._is_url_rewrite(pair[0])]
+        command = self._command_settings()
+        env = {key: self._inherited[key] for key in self._inherited.keys() - command}
+        pairs = self._git_settings(command) if command else []
+        pairs = [pair for pair in pairs if not self._exclude_setting(pair[0])]
         pairs.append(
             ("url.https://github.com/punt-labs/.insteadOf", "git@github.com:punt-labs/")
         )
@@ -39,55 +37,57 @@ class MarketplaceGitEnvironment:
         env["GIT_CONFIG_COUNT"] = str(len(pairs))
         return env
 
-    @staticmethod
-    def _indexed_settings(env: dict[str, str]) -> list[tuple[str, str]]:
-        try:
-            count = int(env.get("GIT_CONFIG_COUNT", "0"))
-        except ValueError as exc:
-            raise InstallError(
-                "Invalid GIT_CONFIG_COUNT; check the Git environment"
-            ) from exc
-        if not 0 <= count <= len(env) // 2:
-            raise InstallError("Invalid GIT_CONFIG_COUNT; check the Git environment")
-        pairs: list[tuple[str, str]] = []
-        for index in range(count):
-            key = env.pop(f"GIT_CONFIG_KEY_{index}", "")
-            value = env.pop(f"GIT_CONFIG_VALUE_{index}", None)
-            if not key or value is None:
-                raise InstallError("Incomplete Git configuration in the environment")
-            pairs.append((key, value))
-        return pairs
+    def _command_settings(self) -> dict[str, str]:
+        return {
+            key: self._inherited[key]
+            for key in self._inherited
+            if key in {"GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS"}
+            or key.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))
+        }
 
-    @staticmethod
-    def _git_parameters(parameters: str) -> list[tuple[str, str]]:
-        """Let Git decode its command settings without loading config files."""
+    def _git_settings(self, command: dict[str, str]) -> list[tuple[str, str]]:
+        """Expand command-scoped includes without loading normal config files."""
         env = {
-            "PATH": os.environ.get("PATH", os.defpath),
-            "GIT_CONFIG_PARAMETERS": parameters,
+            **command,
+            "PATH": self._inherited.get("PATH", os.defpath),
+            "HOME": self._inherited.get("HOME", os.path.expanduser("~")),
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_DIR": os.devnull,
         }
         try:
             result = subprocess.run(
-                ["git", "config", "--null", "--list", "--no-includes"],
+                ["git", "config", "--null", "--list", "--includes"],
                 env=env,
                 capture_output=True,
                 check=True,
                 timeout=10,
             )
         except (OSError, subprocess.SubprocessError) as exc:
-            raise InstallError("Could not read inherited Git command settings") from exc
-        pairs: list[tuple[str, str]] = []
-        for entry in os.fsdecode(result.stdout).split("\0"):
-            if entry:
-                key, separator, value = entry.partition("\n")
-                pairs.append((key, value if separator else "true"))
-        return pairs
+            raise InstallError(
+                "Could not read inherited Git command settings; "
+                "check Git options and include paths"
+            ) from exc
+        return [
+            self._decode_setting(entry)
+            for entry in os.fsdecode(result.stdout).split("\0")
+            if entry
+        ]
 
     @staticmethod
-    def _is_url_rewrite(key: str) -> bool:
+    def _decode_setting(entry: str) -> tuple[str, str]:
+        key, separator, value = entry.partition("\n")
+        return key, value if separator else "true"
+
+    @staticmethod
+    def _exclude_setting(key: str) -> bool:
         normalized = key.lower()
-        return normalized.startswith("url.") and normalized.endswith(
-            (".insteadof", ".pushinsteadof")
+        if normalized.startswith("includeif.") and normalized.endswith(".path"):
+            raise InstallError(
+                "Move conditional Git command includes to your Git config "
+                "before running punt install"
+            )
+        return normalized == "include.path" or (
+            normalized.startswith("url.")
+            and normalized.endswith((".insteadof", ".pushinsteadof"))
         )

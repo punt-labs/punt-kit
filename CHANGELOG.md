@@ -9,7 +9,9 @@ All notable changes to this project will be documented in this file.
 - Release verification failures, including timeouts, name the resume phase
   in JSON; failed checks are named even in quiet mode.
 - Claude Code setup keeps inherited Git command settings such as proxy and
-  CA options while replacing command-scoped URL rewrites.
+  CA options while replacing command-scoped URL rewrites, including rewrites
+  from configuration files included by command settings. Keep conditional
+  includes in Git config rather than passing them as command settings.
 
 - Derive the telemetry configuration path from Punt's shared home resolver
   without moving the existing `~/.punt-labs/punt/config.toml` (PL-1450).
