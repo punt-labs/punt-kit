@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from fnmatch import translate
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, cast, final
 
@@ -61,12 +62,11 @@ class WorkspaceVersions:
     def _uv(cls, manifest: dict[str, object]) -> dict[str, object]:
         return cls._mapping(cls._mapping(manifest.get("tool")).get("uv"))
 
-    def _directories(self, key: str) -> set[Path]:
+    def _patterns(self, key: str) -> Iterator[str]:
         patterns = self._config.get(key, [])
         if not isinstance(patterns, list):
             msg = f"tool.uv.workspace.{key} must be an array of relative glob patterns"
             raise ReleaseError(msg)
-        directories: set[Path] = set()
         for pattern in cast("list[object]", patterns):
             if (
                 not isinstance(pattern, str)
@@ -76,10 +76,15 @@ class WorkspaceVersions:
             ):
                 msg = f"Invalid tool.uv.workspace.{key} pattern: {pattern!r}"
                 raise ReleaseError(msg)
-            directories.update(
-                path for path in self._root.glob(pattern) if path.is_dir()
-            )
-        return directories
+            yield Path(pattern).as_posix()
+
+    @staticmethod
+    def _exclusion(pattern: str) -> re.Pattern[str]:
+        # uv matches exclusions against the whole path, allowing '*' across '/'.
+        chunks = re.split(r"(?<![^/])\*\*/", pattern)
+        return re.compile(
+            r"(?:.*/)?".join(translate(chunk)[:-2] for chunk in chunks), re.DOTALL
+        )
 
     @staticmethod
     def _parse(path: Path, text: str) -> TOMLDocument:
@@ -164,11 +169,20 @@ class WorkspaceVersions:
 
     def _member_paths(self) -> list[Path]:
         root_file = self._root / "pyproject.toml"
-        members = self._directories("members") - self._directories("exclude")
+        exclusions = [self._exclusion(pattern) for pattern in self._patterns("exclude")]
+        members = {
+            path
+            for pattern in self._patterns("members")
+            for path in self._root.glob(pattern)
+        }
         paths = [
             path / "pyproject.toml"
             for path in sorted(members - {self._root})
             if (path / "pyproject.toml").exists()
+            and not any(
+                pattern.fullmatch(path.relative_to(self._root).as_posix())
+                for pattern in exclusions
+            )
         ]
         paths.append(root_file)
         return paths

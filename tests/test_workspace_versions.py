@@ -5,6 +5,8 @@ from __future__ import annotations
 import tomllib
 from typing import TYPE_CHECKING
 
+import pytest
+
 from punt_kit.phases.shared.workspace_versions import WorkspaceVersions
 
 if TYPE_CHECKING:
@@ -97,3 +99,29 @@ dependencies = ["client-lib==1.0.0"]
         workspace.rewrites(root_text, "1.0.0", "2.0.0", original_versions.get)
         == rewrites
     )
+
+
+@pytest.mark.parametrize("exclude", ["packages/*-skip", "packages/**/*-skip"])
+def test_exclude_matches_nested_workspace_paths(tmp_path: Path, exclude: str) -> None:
+    text = (
+        '[project]\nname = "root"\nversion = "1.0.0"\n'
+        '[tool.uv.workspace]\nmembers = ["packages/*-skip", "packages/nested/*"]\n'
+        f'exclude = ["{exclude}"]\n'
+    )
+    expected = {tmp_path / "pyproject.toml"}
+    for parent, name in (
+        ("packages", "direct-skip"),
+        ("packages/nested", "nested-skip"),
+        ("packages/nested", "keep"),
+    ):
+        path = tmp_path / parent / name / "pyproject.toml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f'[project]\nname = "{name}"\nversion = "1.0.0"\n')
+        if name == "keep":
+            expected.add(path)
+
+    workspace = WorkspaceVersions.from_manifest(
+        tmp_path, tomllib.loads(text), read=lambda path: path.read_text()
+    )
+    assert workspace is not None
+    assert workspace.rewrites(text, "1.0.0", "2.0.0", lambda _: None).keys() == expected
