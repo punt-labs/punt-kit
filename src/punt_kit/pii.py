@@ -5,13 +5,16 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from rich.console import Console
 
 from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.pii_matcher import Finding, PiiMatcher, ScanSource
 from punt_kit.pii_matcher import PiiConfig as PiiConfig
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 console = Console()
 
@@ -21,6 +24,7 @@ class ConfigSource:
     """Locate and decode the PII settings for one checkout."""
 
     root: Path
+    index_blob: Callable[[str], bytes | None] | None = None
 
     def load(self, config_path: str | None) -> PiiConfig:
         """Load the PII config from the first applicable source.
@@ -33,25 +37,29 @@ class ConfigSource:
             ReleaseError: A config file cannot be read or is not valid TOML.
         """
         if config_path is not None:
-            return self._parse(Path(config_path))
+            return PiiConfig.from_dict(TextFile(Path(config_path)).toml())
 
-        pyproject = self.root / "pyproject.toml"
-        if pyproject.exists():
-            data = TextFile(pyproject).toml()
+        if (data := self._read_default("pyproject.toml")) is not None:
             pii_section = self._drill(data, "tool", "punt", "pii")
             if pii_section is not None:
                 return PiiConfig.from_dict(pii_section)
 
-        standalone = self.root / ".punt-pii.toml"
-        if standalone.exists():
-            return self._parse(standalone)
+        if (data := self._read_default(".punt-pii.toml")) is not None:
+            return PiiConfig.from_dict(data)
 
         return PiiConfig()
 
-    def _parse(self, path: Path) -> PiiConfig:
-        """Parse a standalone .punt-pii.toml file."""
-        data = TextFile(path).toml()
-        return PiiConfig.from_dict(data)
+    def _read_default(self, name: str) -> dict[str, object] | None:
+        if self.index_blob is None:
+            path = self.root / name
+            return TextFile(path).toml() if path.exists() else None
+        blob = self.index_blob(name)
+        if blob is None:
+            return None
+        source = f"staged {name}"
+        return TextFile.parse_toml(
+            TextFile.from_bytes(blob, source=source), source=source
+        )
 
     @staticmethod
     def _drill(data: dict[str, object], *keys: str) -> dict[str, object] | None:

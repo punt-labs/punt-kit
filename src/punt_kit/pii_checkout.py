@@ -12,7 +12,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from punt_kit.errors import CommandFailure, ReleaseError
-from punt_kit.pii import compile_allow_patterns, load_config
+from punt_kit.pii import ConfigSource, compile_allow_patterns
 from punt_kit.pii_matcher import Finding, PiiConfig, PiiMatcher, ScanSource
 
 console = Console()
@@ -27,12 +27,13 @@ class CheckoutScan:
     _files_scanned: int
     _findings: list[Finding]
 
-    def __new__(cls, root: Path, staged: bool, config: PiiConfig) -> Self:
+    def __new__(cls, root: Path, staged: bool, config: str | None) -> Self:
         """Bind repository, input source, and configured rules for one scan."""
         self = super().__new__(cls)
         self._root = root
         self._staged = staged
-        self._config = config
+        source = ConfigSource(root, index_blob=self._index_config if staged else None)
+        self._config = source.load(config)
         self._files_scanned = 0
         self._findings = []
         return self
@@ -96,6 +97,17 @@ class CheckoutScan:
         if b"\0" in blob[:8192]:
             return None
         return ScanSource(path, blob.decode(errors="replace"))
+
+    def _index_config(self, path: str) -> bytes | None:
+        entries = self._git(["ls-files", "--stage", "-z", "--", path])
+        if not entries:
+            return None
+        if entries.count(b"\0") != 1 or entries.split()[0] not in {
+            b"100644",
+            b"100755",
+        }:
+            raise ReleaseError(f"Staged {path} must be a single regular file")
+        return self._git(["show", f":./{path}"])
 
     def _staged_files(self) -> list[str]:
         data = self._git(
@@ -216,7 +228,7 @@ def run_pii(
         console.print(f"[red]Error:[/red] {escape(message)}")
         raise CommandFailure(message)
     try:
-        scan = CheckoutScan(root, staged, load_config(root, config))
+        scan = CheckoutScan(root, staged, config)
         return scan.run()
     except ReleaseError as exc:
         console.print(f"[red]Error:[/red] {escape(str(exc))}")
