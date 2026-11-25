@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import tomllib
 from typing import TYPE_CHECKING
@@ -137,7 +136,7 @@ def test_exclude_matches_nested_workspace_paths(tmp_path: Path, exclude: str) ->
     assert workspace.rewrites(text, "1.0.0", "2.0.0", lambda _: None).keys() == expected
 
 
-@pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not installed")
+@pytest.mark.usefixtures("isolated_uv")
 @pytest.mark.parametrize("exclude", ["packages/*-skip", "packages/**/*-skip"])
 def test_workspace_exclusions_match_uv_lock(tmp_path: Path, exclude: str) -> None:
     root = tmp_path / "pyproject.toml"

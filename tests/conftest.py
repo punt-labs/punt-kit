@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import shutil
 import sys
 from typing import TYPE_CHECKING
 
@@ -14,6 +16,7 @@ from tools.test_quarantine import (
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
 # Fix the rendering width so long temporary paths do not wrap asserted messages.
 _WIDTH = 10000
@@ -53,3 +56,25 @@ def _wide_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
         for value in vars(module).values():
             if isinstance(value, Console):
                 monkeypatch.setattr(value, "width", _WIDTH)
+
+
+@pytest.fixture
+def isolated_uv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run real uv subprocesses offline without user settings or credentials."""
+    if shutil.which("uv") is None:
+        pytest.skip("uv is not installed")
+    for name in tuple(os.environ):
+        if name.startswith("UV_"):
+            monkeypatch.delenv(name)
+    home = tmp_path / "uv-home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    for name in ("CACHE", "CONFIG", "DATA", "STATE"):
+        monkeypatch.setenv(f"XDG_{name}_HOME", str(home / name.lower()))
+    monkeypatch.setenv("NETRC", str(home / ".netrc"))
+    monkeypatch.setenv("UV_CACHE_DIR", str(home / "cache"))
+    monkeypatch.setenv("UV_NO_CONFIG", "1")
+    monkeypatch.setenv("UV_OFFLINE", "1")
+    monkeypatch.setenv("UV_KEYRING_PROVIDER", "disabled")
+    monkeypatch.setenv("UV_PYTHON", sys.executable)
+    monkeypatch.setenv("UV_PYTHON_DOWNLOADS", "never")

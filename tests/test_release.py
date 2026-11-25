@@ -818,6 +818,7 @@ def test_version_bump_dry_run_no_changes(tmp_path: Path) -> None:
     assert 'version = "0.1.0"' in content
 
 
+@pytest.mark.usefixtures("isolated_uv")
 @pytest.mark.parametrize("resume", [False, True], ids=["fresh", "resume"])
 def test_version_bump_locks_and_commits_workspace_members(
     tmp_path: Path, resume: bool
