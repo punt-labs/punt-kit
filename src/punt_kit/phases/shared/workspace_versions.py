@@ -190,10 +190,17 @@ class WorkspaceVersions:
 
     def _read_members(self, root_text: str) -> list[tuple[Path, TOMLDocument, _Table]]:
         root_file = self._root / "pyproject.toml"
+        resolved_root = self._root.resolve()
         manifests: list[tuple[Path, TOMLDocument, _Table]] = []
         for path in self._member_paths():
-            if not path.resolve().is_relative_to(self._root.resolve()):
+            resolved = path.resolve()
+            if not resolved.is_relative_to(resolved_root):
                 msg = f"uv workspace manifest is outside the project: {path}"
+                raise ReleaseError(msg)
+            if path != root_file and resolved != resolved_root / path.relative_to(
+                self._root
+            ):
+                msg = f"uv workspace member manifest uses a symlink: {path}"
                 raise ReleaseError(msg)
             text = root_text if path == root_file else self._read(path)
             document = self._parse(path, text)

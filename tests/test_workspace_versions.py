@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.workspace_versions import WorkspaceVersions
 
 if TYPE_CHECKING:
@@ -148,3 +149,21 @@ def test_equivalent_member_version_shares_the_root_release(tmp_path: Path) -> No
     assert 'version = "2.0"' in rewrites[client]
     client.write_text(rewrites[client])
     assert workspace.rewrites(text, "1.0", "2.0", previous) == rewrites
+
+
+def test_rejects_symlinked_member_manifest(tmp_path: Path) -> None:
+    text = (
+        '[project]\nname = "root"\nversion = "1.0.0"\n'
+        '[tool.uv.workspace]\nmembers = ["client"]\n'
+    )
+    actual = tmp_path / "client.toml"
+    actual.write_text('[project]\nname = "client"\nversion = "1.0.0"\n')
+    member = tmp_path / "client" / "pyproject.toml"
+    member.parent.mkdir()
+    member.symlink_to(actual)
+    workspace = WorkspaceVersions.from_manifest(
+        tmp_path, tomllib.loads(text), read=lambda path: path.read_text()
+    )
+    assert workspace is not None
+    with pytest.raises(ReleaseError, match="member manifest uses a symlink"):
+        workspace.rewrites(text, "1.0.0", "2.0.0", lambda _: None)
