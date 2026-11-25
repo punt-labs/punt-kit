@@ -17,8 +17,8 @@ from typer.core import TyperGroup
 from typer.main import get_command
 
 from punt_kit.__main__ import app
+from punt_kit.command_span import CommandSpan
 from punt_kit.paths import PuntPaths
-from punt_kit.telemetry import ObservedGroup
 
 
 def _run(
@@ -307,8 +307,8 @@ def test_closed_schema_drops_unknown_values(tmp_path: Path) -> None:
         tmp_path,
         code="""
 from punt_observe.telemetry import open_telemetry
-from punt_kit.telemetry import ObservedGroup
-t = open_telemetry('punt', [ObservedGroup.command_schema(('version',))])
+from punt_kit.command_span import CommandSpan
+t = open_telemetry('punt', [CommandSpan.command_schema(('version',))])
 with t.span('punt.cli.command', 1, command='unregistered'):
     pass
 with t.span('punt.cli.command', 1, command='version', secret='private content'):
@@ -327,7 +327,7 @@ with t.span('punt.cli.command', 1, command='version'):
 def test_schema_matches_registered_commands() -> None:
     group = get_command(app)
     assert isinstance(group, TyperGroup)
-    schema = ObservedGroup.command_schema(tuple(group.commands))
+    schema = CommandSpan.command_schema(tuple(group.commands))
     command = schema.attributes["command"]
     assert isinstance(command, EnumAttr)
     assert set(command.values) == {"punt", "unknown", *group.commands}

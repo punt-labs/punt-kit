@@ -49,6 +49,9 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Separate status rendering and command telemetry from the CLI adapter
+  without changing existing commands, output, or telemetry (PL-1519).
+
 - The [CLI standard](standards/cli.md) defines approved command maps,
   finite JSON results, remote target selection, and per-command success.
   Stable clauses trace to the Python and Go CLI rules. This does not
