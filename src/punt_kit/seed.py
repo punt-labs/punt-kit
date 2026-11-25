@@ -367,10 +367,7 @@ def _seed_file(
         raise ValueError(msg)
 
     if target == "makefile" and info.language != "python":
-        console.print(
-            "  [yellow]⚠[/yellow] Makefile templates only support Python — skipping"
-        )
-        return []
+        raise _failure("Makefile templates only support Python projects")
 
     original = ""
     if target_path.exists():

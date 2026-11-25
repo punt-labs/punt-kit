@@ -357,12 +357,12 @@ class TestRunSeed:
 
         assert not (tmp_path / "Makefile").exists()
 
-    def test_seed_makefile_skips_non_python(self, tmp_path: Path) -> None:
+    def test_seed_makefile_rejects_non_python(self, tmp_path: Path) -> None:
         (tmp_path / "README.md").write_text("# Test\n")
 
-        changed = run_seed(str(tmp_path), target="makefile")
+        with pytest.raises(SystemExit, match="1"):
+            run_seed(str(tmp_path), target="makefile")
 
-        assert changed == []
         assert not (tmp_path / "Makefile").exists()
 
     def test_seed_settings(self, tmp_path: Path) -> None:
