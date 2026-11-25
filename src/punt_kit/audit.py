@@ -17,7 +17,15 @@ from rich.markup import escape
 from punt_kit.audit_github import GithubSettingsAudit
 from punt_kit.audit_layout import LayoutAudit
 from punt_kit.audit_permissions import PermissionsAudit
-from punt_kit.audit_report import FAIL, FIXED, INFO, PASS, AuditReport, Findings
+from punt_kit.audit_report import (
+    FAIL,
+    FIXED,
+    INFO,
+    PASS,
+    AuditOptions,
+    AuditReport,
+    Findings,
+)
 from punt_kit.detect import ProjectInfo, detect
 from punt_kit.errors import CommandFailure, ReleaseError
 from punt_kit.git_checkout import GitCheckout
@@ -33,6 +41,7 @@ console = Console(emoji=False)
 logger = logging.getLogger(__name__)
 
 TEMPLATES = importlib.resources.files("punt_kit") / "templates"
+_DEFAULTS = AuditOptions()
 
 
 def _doctor_invocation(binaries: list[str]) -> re.Pattern[str]:
@@ -52,12 +61,12 @@ def _doctor_invocation(binaries: list[str]) -> re.Pattern[str]:
     )
 
 
-def run_audit(path: str, *, fix: bool = False) -> tuple[int, int]:
+def run_audit(path: str, *, options: AuditOptions = _DEFAULTS) -> tuple[int, int]:
     """Check a project against Punt Labs standards and print the findings.
 
     Args:
         path: Project directory to audit.
-        fix: Create missing mechanical files from templates.
+        options: Whether to create missing files or suppress routine output.
 
     Raises:
         SystemExit: With status 1 when ``path`` is not a directory, its
@@ -78,20 +87,21 @@ def run_audit(path: str, *, fix: bool = False) -> tuple[int, int]:
         console.print(f"      [dim]{escape(str(exc))}[/dim]")
         raise CommandFailure(str(exc)) from exc
 
-    suffix = " --fix" if fix else ""
-    console.print(
-        f"\n[bold]punt repo audit{suffix}[/bold] — {escape(root.name)}\n"
-        f"  Language: {info.language or 'none'}"
-        f"  Type: {info.project_type or 'unknown'}\n"
-    )
+    if not options.quiet:
+        suffix = " --fix" if options.fix else ""
+        console.print(
+            f"\n[bold]punt repo audit{suffix}[/bold] — {escape(root.name)}\n"
+            f"  Language: {info.language or 'none'}"
+            f"  Type: {info.project_type or 'unknown'}\n"
+        )
 
     checks: tuple[Callable[[], Findings], ...] = (
         partial(_check_ci, info),
         partial(_check_tool_config, info),
-        partial(_check_markdownlint, info, fix=fix),
+        partial(_check_markdownlint, info, fix=options.fix),
         partial(_check_markdownlint_content, info),
-        partial(_check_py_typed, info, fix=fix),
-        partial(_check_changelog, info, fix=fix),
+        partial(_check_py_typed, info, fix=options.fix),
+        partial(_check_changelog, info, fix=options.fix),
         partial(_check_beads, info),
         partial(_check_claude_md, info),
         PermissionsAudit(info).findings,
@@ -105,7 +115,7 @@ def run_audit(path: str, *, fix: bool = False) -> tuple[int, int]:
     )
     return AuditReport(
         [finding for check in checks for finding in _guarded(check)]
-    ).report(console)
+    ).report(console, quiet=options.quiet)
 
 
 def _guarded(check: Callable[[], Findings]) -> Findings:

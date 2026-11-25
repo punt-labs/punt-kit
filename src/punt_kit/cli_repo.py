@@ -61,7 +61,9 @@ class RepoCli:
 
         output = self._output.from_context(ctx)
         with output.engine_output():
-            result = run_init(path, language=language or None)
+            result = run_init(
+                path, language=language if output.json else language or None
+            )
         output.emit({"changes": result})
 
     def audit(
@@ -74,10 +76,13 @@ class RepoCli:
     ) -> None:
         """Check the repository against Punt Labs standards."""
         from punt_kit.audit import run_audit
+        from punt_kit.audit_report import AuditOptions
 
         output = self._output.from_context(ctx)
         with output.engine_output():
-            passed, fixed = run_audit(path, fix=fix)
+            passed, fixed = run_audit(
+                path, options=AuditOptions(fix=fix, quiet=output.quiet)
+            )
         output.emit({"passed": passed, "failed": 0, "fixed": fixed})
 
     def pii(

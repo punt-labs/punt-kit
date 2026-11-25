@@ -11,6 +11,7 @@ import pytest
 
 from punt_kit import audit
 from punt_kit.audit import run_audit
+from punt_kit.audit_report import AuditOptions
 from punt_kit.audit_verdict import FAIL, INFO, PASS
 from punt_kit.detect import detect
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
@@ -59,7 +60,7 @@ def test_audit_fix_creates_markdownlint(tmp_path: Path) -> None:
     (tmp_path / ".markdownlint.jsonc").unlink()
     (tmp_path / ".markdownlint-cli2.jsonc").unlink()
 
-    run_audit(str(tmp_path), fix=True)
+    run_audit(str(tmp_path), options=AuditOptions(fix=True))
 
     assert (tmp_path / ".markdownlint.jsonc").exists()
     content = (tmp_path / ".markdownlint.jsonc").read_text()
@@ -76,7 +77,7 @@ def test_audit_fix_creates_py_typed(tmp_path: Path) -> None:
     py_typed = tmp_path / "src" / "test_pkg" / "py.typed"
     py_typed.unlink()
 
-    run_audit(str(tmp_path), fix=True)
+    run_audit(str(tmp_path), options=AuditOptions(fix=True))
 
     assert py_typed.exists()
 
@@ -86,7 +87,7 @@ def test_audit_fix_creates_changelog(tmp_path: Path) -> None:
     _make_compliant_python(tmp_path)
     (tmp_path / "CHANGELOG.md").unlink()
 
-    run_audit(str(tmp_path), fix=True)
+    run_audit(str(tmp_path), options=AuditOptions(fix=True))
 
     changelog = tmp_path / "CHANGELOG.md"
     assert changelog.exists()
@@ -110,7 +111,7 @@ def test_audit_fix_idempotent(tmp_path: Path) -> None:
     (tmp_path / ".markdownlint.jsonc").unlink()
     (tmp_path / ".markdownlint-cli2.jsonc").unlink()
 
-    run_audit(str(tmp_path), fix=True)
+    run_audit(str(tmp_path), options=AuditOptions(fix=True))
     first_ml = (tmp_path / ".markdownlint.jsonc").read_text()
 
     run_audit(str(tmp_path))  # Second run without fix — should pass
@@ -125,7 +126,7 @@ def test_audit_fix_does_not_overwrite_existing(tmp_path: Path) -> None:
     custom = '{"MD013": true}\n'
     (tmp_path / ".markdownlint.jsonc").write_text(custom)
 
-    run_audit(str(tmp_path), fix=True)
+    run_audit(str(tmp_path), options=AuditOptions(fix=True))
 
     assert (tmp_path / ".markdownlint.jsonc").read_text() == custom
 

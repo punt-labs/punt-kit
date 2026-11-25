@@ -59,8 +59,8 @@ LANGUAGE_TOOLS: dict[str, tuple[str, ...]] = {
 def run_init(path: str, *, language: str | None = None) -> list[str]:
     """Detect project type, generate/update missing files, report manual steps.
 
-    *language* overrides auto-detection. When detection returns no language
-    and no override is given, prompts only on an interactive terminal.
+    *language* overrides auto-detection; an empty string detects without
+    prompting. The default, None, allows a prompt on an interactive terminal.
     No file is ever rewritten from a guess at what it held.
 
     Raises:
@@ -83,14 +83,14 @@ def _init_project(path: str, *, language: str | None) -> list[str]:
 
     info = detect(root)
 
-    if language is not None:
+    if language:
         if language not in SUPPORTED_LANGUAGES:
             raise ReleaseError(
                 f"unsupported language '{language}'"
                 f" — choose from: {', '.join(SUPPORTED_LANGUAGES)}"
             )
         info = _with_language(info, language)
-    elif info.language is None:
+    elif info.language is None and language is None:
         prompted = _prompt_language()
         if prompted is not None:
             info = _with_language(info, prompted)
@@ -177,18 +177,20 @@ def _validate_inputs(info: ProjectInfo) -> None:
 
 def _prompt_language() -> str | None:
     """Prompt the user to choose a language only on an interactive terminal."""
-    if not sys.stdin.isatty() or not sys.stdout.isatty():
+    if not sys.stdin.isatty() or not sys.stderr.isatty():
         return None
 
-    console.print(
+    prompt = Console(stderr=True)
+    prompt.print(
         "[yellow]No language detected.[/yellow] Choose one (or press Enter to skip):"
     )
     menu = dict(enumerate(SUPPORTED_LANGUAGES, 1))
     for i, lang in menu.items():
-        console.print(f"  {i}. {lang}")
+        prompt.print(f"  {i}. {lang}")
 
+    prompt.print("> ", end="")
     try:
-        choice = input("> ").strip()
+        choice = input().strip()
     except EOFError:
         return None
 
@@ -201,7 +203,7 @@ def _prompt_language() -> str | None:
     try:
         return menu[int(choice)]
     except (ValueError, KeyError):
-        Console(stderr=True).print(f"[red]Invalid choice:[/red] '{escape(choice)}'")
+        prompt.print(f"[red]Invalid choice:[/red] '{escape(choice)}'")
         return None
 
 
@@ -217,9 +219,7 @@ def _with_language(info: ProjectInfo, language: str) -> ProjectInfo:
     standards_refs = list(info.standards_refs)
     if language not in standards_refs:
         standards_refs.append(language)
-    if language == "python" and "cli" not in standards_refs:
-        standards_refs.append("cli")
-    if language == "go" and "cli" not in standards_refs:
+    if language in {"python", "go"} and "cli" not in standards_refs:
         standards_refs.append("cli")
 
     # replace(), not a field-by-field rebuild: this function overrides three

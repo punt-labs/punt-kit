@@ -1488,7 +1488,8 @@ def test_init_shows_an_invalid_language_choice_with_markup_literally(
 ) -> None:
     monkeypatch.setattr(shutil, "which", _no_bd)
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
-    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr("sys.stderr.isatty", lambda: True)
+    monkeypatch.setenv("NO_COLOR", "1")
 
     def answer(_prompt: str = "") -> str:
         return _MARKUP
