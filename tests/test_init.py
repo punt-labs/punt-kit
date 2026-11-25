@@ -1053,7 +1053,7 @@ def test_init_never_activates_a_dormant_negation(tmp_path: Path) -> None:
 
     before = ignored()
     run_init(str(tmp_path))
-    assert ignored() == before, "punt init changed what git ignores"
+    assert ignored() == before, "punt repo init changed what git ignores"
 
 
 @pytest.mark.parametrize(
@@ -1478,7 +1478,7 @@ def test_init_shows_a_project_name_with_markup_literally(
 
     run_init(str(root))
 
-    assert "punt init — p[bold]x" in flat(capsys.readouterr().out)
+    assert "punt repo init — p[bold]x" in flat(capsys.readouterr().out)
 
 
 def test_init_shows_an_invalid_language_choice_with_markup_literally(
@@ -1488,6 +1488,8 @@ def test_init_shows_an_invalid_language_choice_with_markup_literally(
 ) -> None:
     monkeypatch.setattr(shutil, "which", _no_bd)
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("sys.stderr.isatty", lambda: True)
+    monkeypatch.setenv("NO_COLOR", "1")
 
     def answer(_prompt: str = "") -> str:
         return _MARKUP
@@ -1496,7 +1498,7 @@ def test_init_shows_an_invalid_language_choice_with_markup_literally(
 
     run_init(str(tmp_path))
 
-    assert f"'{_MARKUP}'" in flat(capsys.readouterr().out)
+    assert f"'{_MARKUP}'" in flat(capsys.readouterr().err)
 
 
 def test_init_shows_an_unsupported_language_with_markup_literally(

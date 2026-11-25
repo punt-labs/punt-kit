@@ -1,4 +1,4 @@
-"""The beads step of punt init: the success path, the shortcut and both failures."""
+"""The beads step of repo init: success, shortcut, and both failures."""
 
 from __future__ import annotations
 

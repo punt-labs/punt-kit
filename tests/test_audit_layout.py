@@ -1,4 +1,4 @@
-"""The `.punt-labs/` layout findings of `punt audit`, against real git repos.
+"""The `.punt-labs/` layout findings of `punt repo audit`, against real git repos.
 
 Each test builds a repository under ``tmp_path`` with one of the gitignore
 fixtures in ``tests/fixtures/punt_labs_dir/`` and asserts the exact finding

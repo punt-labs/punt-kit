@@ -1,4 +1,4 @@
-"""The permissions findings of `punt audit`: settings.json against the standard."""
+"""The permissions findings of `punt repo audit`: settings.json against the standard."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class PermissionsAudit:
                 (
                     FAIL,
                     ".claude/settings.json exists",
-                    "Missing — run punt init",
+                    "Missing — run punt repo init",
                 )
             )
             return results
@@ -78,7 +78,7 @@ class PermissionsAudit:
                 (
                     FAIL,
                     "Standard deny rules present",
-                    "Missing permissions.deny — run punt init",
+                    "Missing permissions.deny — run punt repo init",
                 )
             )
             return results
@@ -138,9 +138,9 @@ class PermissionsAudit:
     def _dead_rules_in(perms: dict[str, object]) -> tuple[list[str], list[str]]:
         """Dead rules in a permissions block, split by whether init can fix them.
 
-        ``punt init`` skips a tier holding a non-string entry rather than coerce it
+        ``punt repo init`` skips a tier holding a non-string entry rather than coerce it
         to its repr, so dead rules in such a tier need a hand edit. Reporting them
-        all as "run punt init" would send the user round a loop that never
+        all as "run punt repo init" would send the user round a loop that never
         converges.
         """
         fixable: list[str] = []
@@ -182,13 +182,13 @@ class PermissionsAudit:
     def _dead_rule_remedy(fixable: list[str], manual: list[str]) -> str:
         """Return the advice that resolves the reported rules."""
         if not manual:
-            return " — run punt init"
+            return " — run punt repo init"
         if not fixable:
             return (
                 " — edit by hand: the tier holds a non-string entry, so init skips it"
             )
         return (
-            f" — run punt init; {len(manual)} sit in a tier with a non-string"
+            f" — run punt repo init; {len(manual)} sit in a tier with a non-string"
             " entry and need a hand edit"
         )
 

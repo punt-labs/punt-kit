@@ -6,13 +6,19 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- `punt release` bumps uv workspace members that share the root version and
-  updates their matching exact dependency pins before refreshing `uv.lock`.
+- `punt release run` bumps uv workspace members that share the root version
+  and updates their matching exact dependency pins before refreshing `uv.lock`.
+- Release verification failures, including timeouts, name the resume phase
+  in JSON; failed checks are named even in quiet mode.
+- Claude Code setup keeps inherited Git command settings such as proxy and
+  CA options while replacing command-scoped URL rewrites, including rewrites
+  from configuration files included by command settings. Keep conditional
+  includes in Git config rather than passing them as command settings.
 
 - Derive the telemetry configuration path from Punt's shared home resolver
   without moving the existing `~/.punt-labs/punt/config.toml` (PL-1450).
 
-- `punt pii` no longer reads a JSON escape's letter as the start of an address
+- `punt repo scan-pii` no longer reads a JSON escape's letter as the start of an address
   (`\n@pytest.fixture` is not an email; `\u003cnoreply@github.com` stays
   allowlisted), reports each of two glued addresses (`a@x.io-b@y.io`) whole,
   and reports `.local` hostnames with `%`, `+` or multi-label hosts that it
@@ -24,13 +30,16 @@ All notable changes to this project will be documented in this file.
   with recovery instructions, and preserve pre-reset main in
   `refs/punt-release/main-before-sync` for recovery (PL-885).
 
-- `punt init` removes legacy `punt:begin` / `punt:end` sections from
+- `punt repo init` removes legacy `punt:begin` / `punt:end` sections from
   `CLAUDE.md`, preserving surrounding prose and bare imports. Malformed or
   unterminated markers skip stripping with a warning while still adding missing
   standards references. Prose mentions are ordinary content; Makefile marker
   sections are untouched.
 
 ### Added
+
+- Add `punt install` for Claude Code setup, `-h` at every command path,
+  and a single JSON result on stdout for each finite command.
 
 - Python release templates and punt-kit's own release workflow now install the
   exact published version from PyPI and smoke-test the installed CLI after
@@ -55,6 +64,13 @@ All notable changes to this project will be documented in this file.
 - Separate status rendering and command telemetry from the CLI adapter
   without changing existing commands, output, or telemetry (PL-1519).
 
+- Move checkout actions to `punt repo init`, `punt repo audit`,
+  `punt repo scan-pii`, and `punt repo seed`, and releases to
+  `punt release run`. The old flat spellings are not supported.
+
+- Staged PII scans read default rules from regular files in the Git index,
+  and seeding a Makefile for an unsupported project type fails explicitly.
+
 - The [CLI standard](standards/cli.md) defines approved command maps,
   finite JSON results, remote target selection, and per-command success.
   Stable clauses trace to the Python and Go CLI rules. This does not
@@ -74,7 +90,7 @@ All notable changes to this project will be documented in this file.
   quarantines need a Linear issue, owner, reason and a deadline within 14 days.
 
 - The release workflow installs the exact candidate wheel in a clean venv and
-  runs real `punt init`, `punt audit` and `punt status` operations before PyPI
+  runs real `punt repo init`, `punt repo audit` and `punt status` operations before PyPI
   publishes it; after publishing, the same operations run against the PyPI
   package, whose wheel must be byte-identical to the candidate.
   `make smoke-candidate` and a PR job run the candidate check on every change.

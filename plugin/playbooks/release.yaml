@@ -10,9 +10,9 @@ parameters:
 
 steps:
   - id: run-cli
-    description: Run punt release (phases 1-11)
+    description: Run the punt release workflow (phases 1-11)
     type: script
-    command: punt release ${version}
+    command: punt release run ${version}
     background: true
     on_failure: diagnose
 
@@ -40,7 +40,7 @@ steps:
 
       Print a pass/fail table. If any check fails, diagnose and fix.
 
-      If the CLI failed partway, use `punt release --resume-from <phase>` to
+      If the CLI failed partway, use `punt release run --resume-from <phase>` to
       resume from the failed phase. Valid phase names: preflight, bump, build,
       release-pr, tag, ci, github-release, pypi, post-release, propagate, verify.
     on_failure: diagnose

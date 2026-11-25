@@ -8,7 +8,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/punt-kit)](https://pypi.org/project/punt-kit/)
 [![Working Backwards](https://img.shields.io/badge/Working_Backwards-hypothesis-lightgrey)](./prfaq.pdf)
 
-punt-kit holds the engineering standards for Punt Labs projects and the `punt` CLI that applies them: `punt init` creates the files a project needs, and `punt audit` reports where a project differs from the standards. It also documents fourteen design patterns for Claude Code plugins, drawn from Punt Labs plugins, and standards for five languages (Python, Go, C, Swift, Pharo). A Claude Code plugin, `punt@punt-labs`, runs the CLI as slash commands.
+punt-kit holds the engineering standards for Punt Labs projects and the `punt` CLI that applies them: `punt repo init` creates the files a project needs, and `punt repo audit` reports where a project differs from the standards. It also documents fourteen design patterns for Claude Code plugins, drawn from Punt Labs plugins, and standards for five languages (Python, Go, C, Swift, Pharo). A Claude Code plugin, `punt@punt-labs`, runs the CLI as slash commands.
 
 Projects link to these standards from their `CLAUDE.md` (the instructions file Claude Code reads at the start of a session) instead of copying them. [standards/](standards/) holds the standards, [lang-rules/](lang-rules/) the per-language coding rules that Claude Code loads when it edits files in that language, [patterns/](patterns/) the design patterns, and [AGENTS.md](AGENTS.md) the full audit checklist.
 
@@ -31,17 +31,15 @@ Install the CLI:
 uv tool install punt-kit
 ```
 
-Add the Punt Labs marketplace to Claude Code:
+Set up the Punt Labs marketplace and install the plugin at Claude Code user scope:
 
 ```bash
-claude plugin marketplace add punt-labs/claude-plugins
+punt install
 ```
 
-Install the plugin:
-
-```bash
-claude plugin install punt@punt-labs
-```
+Use a punt-kit version that includes the command tree below.
+If your Git command settings supply an `includeIf` entry, move it to your
+Git configuration (for example, `~/.gitconfig`) before running `punt install`.
 
 </details>
 
@@ -86,29 +84,58 @@ Each command that takes `[path]` runs on the current directory when the path is 
 
 | Command | What it does |
 |---------|-------------|
-| `punt init [path]` | Set up a Punt Labs project: CI workflows, linter config, `CLAUDE.md`, Claude Code permissions, and beads. `--language` overrides the detected language |
-| `punt audit [path]` | Check the project against the standards. Read-only unless you pass `--fix` |
-| `punt audit --fix [path]` | Also create missing files that need no judgment: markdownlint config, `py.typed`, and `CHANGELOG.md` |
+| `punt repo init [path]` | Set up a Punt Labs project: CI workflows, linter config, `CLAUDE.md`, Claude Code permissions, and beads. `--language` overrides the detected language |
+| `punt repo audit [path]` | Check the project against the standards. Read-only unless you pass `--fix` |
+| `punt repo audit --fix [path]` | Also create missing files that need no judgment: markdownlint config, `py.typed`, and `CHANGELOG.md` |
 | `punt enable [path]` | Enable punt in the repo: deposit its guide, add the `@.punt-labs/punt/CLAUDE.md` import, and allow `Skill(punt:*)`, with `ask` rules for `/punt:auto` and `/punt:reconcile` |
 | `punt disable [path]` | Remove punt's import, `enabled` marker and permission rules. The guide stays in place, dormant |
-| `punt seed <target> [path]` | Write or update the punt-managed sections of a project file. Targets: `makefile` (Python projects only) and `settings` (`.claude/settings.json`). `--dry-run` shows the changes without writing them |
-| `punt release [version]` | Run the 11-phase release, from preflight checks through PyPI publishing to updates in sibling repositories. Supports `--resume-from <phase>`, `--dry-run`, and `--path` |
-| `punt pii [path]` | Scan tracked files for personal information (email addresses, home directory paths, `.local` hostnames). `--staged` scans only staged files, for use in a pre-commit hook |
+| `punt repo seed <target> [path]` | Write or update the punt-managed sections of a project file. Targets: `makefile` (Python projects only) and `settings` (`.claude/settings.json`). `--dry-run` shows the changes without writing them |
+| `punt release run [version]` | Run the 11-phase release, from preflight checks through PyPI publishing to updates in sibling repositories. Supports `--resume-from <phase>`, `--dry-run`, and `--path` |
+| `punt repo scan-pii [path]` | Scan tracked files for personal information (email addresses, home directory paths, `.local` hostnames). `--staged` scans only staged files, for use in a pre-commit hook |
 | `punt doctor` | Check the installation (Python, uv, ruff, mypy, pyright) |
 | `punt status [path]` | Show the detected language and project type, whether the project is a plugin or MCP server, and its open and in-progress bead counts |
 | `punt version` | Print the installed punt-kit version |
+| `punt install` | Register or refresh the marketplace and install the plugin for the current user without changing this checkout |
 
-Beads is a local issue tracker with the `bd` command. `punt init` runs `bd init` when `bd` is on your `PATH` and skips that step otherwise.
+Beads is a local issue tracker with the `bd` command. `punt repo init` runs `bd init` when `bd` is on your `PATH` and skips that step otherwise.
 
 ### Global Flags
 
-These flags go before the command name, for example `punt --json status`. `punt status --json` is an error.
+Use these flags before or after the command path, for example
+`punt --json repo audit` or `punt repo audit --json`. Quiet and verbose are
+mutually exclusive. Use `-h` or `--help` at any level. Run
+`punt --show-completion` to print completion for your shell, or
+`punt --install-completion` to install it.
 
 | Flag | What it does |
 |------|-------------|
 | `--json` | Print machine-readable JSON |
-| `--verbose` / `-v` | Print more detail |
-| `--quiet` / `-q` | Print errors only |
+| `--verbose` / `-v` | Log diagnostics to stderr |
+| `--quiet` / `-q` | Suppress routine output; keep errors and requested JSON |
+
+### Command results
+
+All verbs run synchronously. Exit zero means the work below was performed,
+not merely accepted. In JSON mode, stdout contains one value; progress and
+diagnostics go to stderr. Exit 1 indicates an operation failure, 2 indicates
+invalid CLI syntax, and 130 indicates an interruption. JSON failures contain
+an `error` string and, where applicable, partial results.
+`punt repo init --json` does not prompt for a language; use `--language`
+to override auto-detection.
+
+| Command | What exit zero proves | JSON result |
+|---------|-----------------------|-------------|
+| `repo init` | Automated scaffolding completed; listed manual steps have not been performed | `changes` |
+| `repo audit` | No failing finding remains after any requested fixes; informational checks may be unavailable | `passed`, `failed`, and `fixed` counts; failing `findings` (check, detail) |
+| `repo scan-pii` | No configured rule matched scanned content; `--staged` reads the Git index | `staged`, `files_scanned`, `findings` (file, line, category) |
+| `repo seed` | The target was rendered and any changes written; a dry run only computes changes | `target`, `dry_run`, and `changes` or `would_change` |
+| `release run` | The requested release phases finished, or the dry run finished without publishing; earlier phases are not rerun on resume | `version`, `dry_run`; verification failures include `resume_from` |
+| `enable` | Repository integration is in place, possibly unchanged | `changes` |
+| `disable` | Repository integration is dormant; the guide is retained if present | `changes` |
+| `status` | The checkout's state was read, not checked for installation health | Checkout and beads state |
+| `doctor` | All required installation checks passed | Array of checks, or `error` and `checks` on failure |
+| `version` | The installed version was read | `version` |
+| `install` | Claude Code confirmed the plugin is installed at user scope | `plugin`, `scope`, `changes` |
 
 ### Slash Commands
 
@@ -116,16 +143,16 @@ The `punt@punt-labs` plugin adds these commands to Claude Code. The plugin does 
 
 | Slash Command | What it does |
 |---------------|-------------|
-| `/punt:init [path]` | Run `punt init` |
-| `/punt:audit [path] [--fix]` | Run `punt audit` |
-| `/punt:pii [path] [--staged]` | Run `punt pii` |
-| `/punt:reconcile [path]` | Run `punt audit`, then have Claude compare the project's CI workflows, `CLAUDE.md`, and `pyproject.toml` with the standards and edit the parts that differ. Use it for changes that need judgment, which `punt audit --fix` does not make |
+| `/punt:init [path]` | Run `punt repo init` |
+| `/punt:audit [path] [--fix]` | Run `punt repo audit` |
+| `/punt:pii [path] [--staged]` | Run `punt repo scan-pii` |
+| `/punt:reconcile [path]` | Run `punt repo audit`, then have Claude compare the project's CI workflows, `CLAUDE.md`, and `pyproject.toml` with the standards and edit the parts that differ. Use it for changes that need judgment, which `punt repo audit --fix` does not make |
 | `/punt:auto <playbook>` | Run an automation playbook: `release`, `autopilot`, `makefile`, `permissions-rollout`, `reconcile-memory`, or `standards-rollout` |
 | `/punt:bead-review [repo]` | Review every open bead for clarity, validity, and priority, closing invalid ones and rewriting the rest. In a repository whose backlog has moved to Linear it stops and points you to Linear |
 
-### What `punt init` Creates
+### What `punt repo init` Creates
 
-`punt init` detects the project type (Python, Node.js, Go, Swift, or documentation only) and creates or updates:
+`punt repo init` detects the project type (Python, Node.js, Go, Swift, or documentation only) and creates or updates:
 
 - **CI workflows** — `docs.yml` for Markdown linting in every project; `lint.yml` and `test.yml` for Python; `lint.yml` for Node.js; `release.yml` for Python projects whose `pyproject.toml` names the package and its CLI command
 - **Python tool config** — `[tool.ruff]`, `[tool.mypy]`, `[tool.pyright]`, and `[tool.pytest]` sections merged into `pyproject.toml`
@@ -149,19 +176,21 @@ It then lists the steps that need GitHub or dashboard access:
   - leave Copilot on request only, with no `copilot_code_review` ruleset rule.
 - **Repository settings** — Dependabot, secret scanning, and automatic deletion of merged branches.
 
-Running `punt init` again updates the files it manages without overwriting your own changes to them.
+Running `punt repo init` again updates the files it manages without overwriting your own changes to them.
 
-`punt audit` checks GitHub repository settings with the `gh` CLI when `gh` is installed and signed in. Its permissions check requires the baseline allow list and accepts entries added by each tool's `enable` command.
+`punt repo audit` checks GitHub repository settings with the `gh` CLI when `gh` is installed and signed in. Its permissions check requires the baseline allow list and accepts entries added by each tool's `enable` command.
 
 ## Setup
 
 ### PII Scan Allow and Deny Lists
 
-`punt pii` reads optional lists from a `[tool.punt.pii]` table in `pyproject.toml`: `allow_emails` (addresses that are not reported), `allow_patterns` (regular expressions for matches that are not reported), and `deny` (extra strings that are always reported). `--config <file>` reads the table from another file.
+`punt repo scan-pii` reads optional lists from a `[tool.punt.pii]` table in `pyproject.toml`: `allow_emails` (addresses that are not reported), `allow_patterns` (regular expressions for matches that are not reported), and `deny` (extra strings that are always reported). `--config <file>` reads the table from another file.
+
+With `--staged`, the default rules must be regular files in the Git index. An explicit `--config` still reads the supplied file from disk.
 
 ### Release Options
 
-`punt release` installs the published package the way users install it, and can keep a Homebrew tap up to date. A project turns on each part:
+`punt release run` installs the published package the way users install it, and can keep a Homebrew tap up to date. A project turns on each part:
 
 | Option | Effect |
 |--------|--------|
@@ -202,7 +231,7 @@ One document per topic. Each project's `CLAUDE.md` links to the ones it follows.
 | [Permissions](standards/permissions.md) | Tool allowlists, deny rules, scope management |
 | [Filesystem](standards/filesystem.md) | `~/.punt-labs/<tool>/` home layout; reserved subdirectories; migration from legacy dot-directories |
 | [Tool Enable/Disable](standards/tool-enable-disable.md) | One @-import per enabled tool; zoned `.punt-labs/<tool>/` subtree (vendored zone tool-owned); enable/disable verbs; required user-guide doc |
-| [Repo-Local State Directory](standards/punt-labs-dir.md) | PLD policy for shared/local/home placement, declared canonical paths, ownership, privacy and preservation; [Python rules](lang-rules/python/python-layout.md), [Go rules](lang-rules/go/go-layout.md), and [punt audit reference](docs/repo-layout.md) |
+| [Repo-Local State Directory](standards/punt-labs-dir.md) | PLD policy for shared/local/home placement, declared canonical paths, ownership, privacy and preservation; [Python rules](lang-rules/python/python-layout.md), [Go rules](lang-rules/go/go-layout.md), and [punt repo audit reference](docs/repo-layout.md) |
 | [Naming](standards/naming.md) | Package names, CLI commands, MCP tool prefixes |
 | [Makefile](standards/makefile.md) | Required targets (check, lint, test, build, clean) and the optional `depot` target |
 | [Logging](standards/logging.md) | Language-neutral diagnostic policy: private files, multi-process-safe rotation, redaction; [Python rules](lang-rules/python/python-logging.md), [Go rules](lang-rules/go/go-logging.md), [Pharo rules](lang-rules/pharo/pharo-logging.md) |

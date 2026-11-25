@@ -1,4 +1,4 @@
-"""punt seed — render and merge managed sections in project files.
+"""punt repo seed — render and merge managed sections in project files.
 
 Uses comment markers to delimit engine-owned sections. Content outside
 markers is preserved untouched. Same input + same templates = identical
@@ -18,11 +18,11 @@ from rich.console import Console
 from rich.markup import escape
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.errors import CommandFailure, ReleaseError
 from punt_kit.init import (
     build_standard_deny_rules,
     build_standard_permissions,
 )
-from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.text_file import TextFile
 
@@ -35,6 +35,12 @@ _MARKERS: dict[str, tuple[str, str]] = {
     "markdown": ("<!-- punt:begin {id} -->", "<!-- punt:end {id} -->"),
     "makefile": ("# punt:begin {id}", "# punt:end {id}"),
 }
+
+
+def _failure(message: str) -> CommandFailure:
+    """Print the diagnostic and carry it to the JSON boundary."""
+    console.print(f"[red]Error:[/red] {escape(message)}")
+    return CommandFailure(message)
 
 
 def _compile_marker_patterns() -> tuple[
@@ -103,11 +109,10 @@ def parse_segments(content: str, file_type: str) -> list[Segment]:
     # the section on the next run (the unclosed block becomes "local" and
     # a fresh managed copy gets appended).
     if current_id is not None:
-        console.print(
-            f"[red]Error:[/red] Unclosed marker '{current_id}'"
-            " — fix the end marker before running punt seed"
+        raise _failure(
+            f"Unclosed marker '{current_id}'"
+            " — fix the end marker before running punt repo seed"
         )
-        raise SystemExit(1)
     if local_lines:
         segments.append((None, "\n".join(local_lines)))
 
@@ -205,16 +210,13 @@ def render_section(
     try:
         template = _jinja_env().get_template(template_name)
     except jinja2.TemplateNotFound as e:
-        console.print(
-            f"[red]Error:[/red] Template '{template_name}'"
-            " not found — punt-kit may need reinstalling"
-        )
-        raise SystemExit(1) from e
+        raise _failure(
+            f"Template '{template_name}' not found — punt-kit may need reinstalling"
+        ) from e
     try:
         body = template.render(**context).strip()
     except jinja2.TemplateError as e:
-        console.print(f"[red]Error:[/red] Template '{template_name}' failed: {e}")
-        raise SystemExit(1) from e
+        raise _failure(f"Template '{template_name}' failed: {e}") from e
 
     return f"{begin_line}\n{body}\n{end_line}"
 
@@ -250,12 +252,11 @@ def merge_json_permissions(
 
     perms_raw = existing.get("permissions")
     if perms_raw is not None and not isinstance(perms_raw, dict):
-        console.print(
-            f"[red]Error:[/red] permissions is"
+        raise _failure(
+            "permissions is"
             f" {type(perms_raw).__name__}, expected dict"
             " — fix .claude/settings.json manually"
         )
-        raise SystemExit(1)
     permissions: dict[str, object] = (
         cast("dict[str, object]", perms_raw) if isinstance(perms_raw, dict) else {}
     )
@@ -263,12 +264,11 @@ def merge_json_permissions(
 
     allow_raw = permissions.get("allow")
     if allow_raw is not None and not isinstance(allow_raw, list):
-        console.print(
-            f"[red]Error:[/red] permissions.allow is"
+        raise _failure(
+            "permissions.allow is"
             f" {type(allow_raw).__name__}, expected list"
             " — fix .claude/settings.json manually"
         )
-        raise SystemExit(1)
     allow: list[object] = (
         cast("list[object]", allow_raw) if isinstance(allow_raw, list) else []
     )
@@ -284,12 +284,11 @@ def merge_json_permissions(
 
     deny_raw = permissions.get("deny")
     if deny_raw is not None and not isinstance(deny_raw, list):
-        console.print(
-            f"[red]Error:[/red] permissions.deny is"
+        raise _failure(
+            "permissions.deny is"
             f" {type(deny_raw).__name__}, expected list"
             " — fix .claude/settings.json manually"
         )
-        raise SystemExit(1)
     deny: list[object] = (
         cast("list[object]", deny_raw) if isinstance(deny_raw, list) else []
     )
@@ -314,7 +313,7 @@ def run_seed(
     """Render and merge managed sections for a target file type.
 
     Returns:
-        The files changed; empty on a dry run or when nothing changed.
+        The files changed, or the files that would change on a dry run.
 
     Raises:
         SystemExit: ``path`` is not a directory, ``target`` is unknown, a
@@ -323,8 +322,7 @@ def run_seed(
     """
     root = Path(path).resolve()
     if not root.is_dir():
-        console.print(f"[red]Error:[/red] {root} is not a directory")
-        raise SystemExit(1)
+        raise _failure(f"{root} is not a directory")
 
     changed: list[str] = []
     try:
@@ -336,14 +334,10 @@ def run_seed(
             changed += _seed_file(info, target, file_type, sections, dry_run=dry_run)
         else:
             valid = ", ".join([*TARGETS.keys(), "settings"])
-            console.print(
-                f"[red]Error:[/red] unknown target '{target}' — choose from: {valid}"
-            )
-            raise SystemExit(1)
+            raise _failure(f"unknown target '{target}' — choose from: {valid}")
     except ReleaseError as exc:
         # An unreadable project file is reported by name, not as a traceback.
-        console.print(f"[red]Error:[/red] {escape(str(exc))}")
-        raise SystemExit(1) from exc
+        raise _failure(str(exc)) from exc
 
     if dry_run:
         console.print("\n[dim]Dry run — no files modified.[/dim]")
@@ -373,10 +367,7 @@ def _seed_file(
         raise ValueError(msg)
 
     if target == "makefile" and info.language != "python":
-        console.print(
-            "  [yellow]⚠[/yellow] Makefile templates only support Python — skipping"
-        )
-        return []
+        raise _failure("Makefile templates only support Python projects")
 
     original = ""
     if target_path.exists():
@@ -396,9 +387,8 @@ def _seed_file(
 
     if dry_run:
         _print_diff_summary(target_path, info.root, original, merged)
-        return []
-
-    TextFile(target_path).write(merged)
+    else:
+        TextFile(target_path).write(merged)
     rel = _relpath(target_path, info.root)
     return [rel]
 
@@ -418,11 +408,7 @@ def _seed_settings(
         try:
             existing = settings.load_object()
         except ReleaseError as e:
-            console.print(
-                f"[red]Error:[/red] {escape(str(e))}"
-                f" — fix {rel} manually; seed will not replace it"
-            )
-            raise SystemExit(1) from e
+            raise _failure(f"{e} — fix {rel} manually; seed will not replace it") from e
     else:
         existing = {}
 
@@ -432,12 +418,11 @@ def _seed_settings(
         return []
 
     if dry_run:
-        rel = _relpath(settings_path, info.root)
-        console.print(f"  [yellow]~[/yellow] {rel} would be updated")
-        return []
-
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings.save(merged)
+        display_path = _relpath(settings_path, info.root)
+        console.print(f"  [yellow]~[/yellow] {display_path} would be updated")
+    else:
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings.save(merged)
     return [_relpath(settings_path, info.root)]
 
 

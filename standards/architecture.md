@@ -70,7 +70,7 @@ reimplements the engine.
 | REST API | app, web frontend, webhook, remote client |
 
 Build the surfaces that have callers — but treat the CLI as present by default,
-because scripts, automation, and humans always give it one. `punt init`
+because scripts, automation, and humans always give it one. `punt repo init`
 scaffolds the surfaces from the first commit; a surface with no caller stays thin
 scaffolding until one appears.
 

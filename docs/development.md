@@ -66,5 +66,5 @@ Two rules follow:
 A plugin change reaches users only after a release: bump the version in
 `plugin.json`, push, update the catalog in
 [punt-labs/claude-plugins](https://github.com/punt-labs/claude-plugins), and
-have users run `/plugin update`. `punt release` runs these steps; see the
+have users run `/plugin update`. `punt release run` runs these steps; see the
 release section of [CLAUDE.md](../CLAUDE.md).

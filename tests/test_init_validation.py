@@ -1,4 +1,4 @@
-"""punt init validates before it writes, and reports a failed `bd init`."""
+"""punt repo init validates before it writes, and reports a failed `bd init`."""
 
 from __future__ import annotations
 

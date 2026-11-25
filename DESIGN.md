@@ -5,6 +5,25 @@ proposing changes to settled decisions. See
 [patterns/design-decision-log.md](patterns/design-decision-log.md) for the
 format spec.
 
+## DES-045: Punt CLI Command Map
+
+**Date:** 2026-11-24
+
+**Decision.** Group checkout operations under `repo` (`init`, `audit`,
+`scan-pii`, `seed`) and release execution under `release run`. Retain
+`enable` and `disable` at the root for fleet-wide repository integration,
+along with `status`, `doctor` and `version`. The root `install` verb sets up
+Claude Code integration for an already installed binary; `install.sh` is
+the external bootstrap. Keep Typer's completion flags. No aliases or
+remote selector: the tool operates on a local checkout. The
+[command reference](README.md#commands) records operands, options and
+the completed-work boundary for each verb.
+
+**Alternatives.** A flat tree doesn't distinguish checkout operations
+from machine setup. Moving `enable` and `disable` under `repo` would break
+the tool-wide integration convention. A separate resume command would
+duplicate the release workflow instead of selecting its starting phase.
+
 ## DES-044: Testing Tiers Name Triggers, Not Test Kinds
 
 **Date:** 2026-11-22

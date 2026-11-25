@@ -701,7 +701,7 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0.0" },
     { name = "tomli-w", specifier = ">=1.0.0" },
     { name = "tomlkit", specifier = ">=0.14.0" },
-    { name = "typer", specifier = ">=0.15.0" },
+    { name = "typer", specifier = ">=0.29.1,<0.30" },
 ]
 
 [package.metadata.requires-dev]

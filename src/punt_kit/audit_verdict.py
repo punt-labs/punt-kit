@@ -1,4 +1,4 @@
-"""The markers `punt audit` prints in front of each finding."""
+"""The markers `punt repo audit` prints in front of each finding."""
 
 from __future__ import annotations
 

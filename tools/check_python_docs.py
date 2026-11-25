@@ -87,7 +87,7 @@ _API_SYMBOLS = frozenset(
         "punt_kit.permission_rules.RuleSet.pruned",
         "punt_kit.permission_rules.RuleSet.to_strings",
         "punt_kit.permission_rules.Tier",
-        "punt_kit.pii.run_pii",
+        "punt_kit.pii_checkout.run_pii",
         "punt_kit.release.run_release",
         "punt_kit.seed.run_seed",
         "punt_kit.status.StatusInfo",

@@ -548,7 +548,7 @@ def test_interrupt_during_resumed_version_detection_reports_resume_phase(
     with pytest.raises(SystemExit) as exc_info:
         run_release(str(root), dry_run=False, resume_from="ci")
 
-    assert exc_info.value.code == 1
+    assert exc_info.value.code == 130
     out = " ".join(capsys.readouterr().out.split())
     assert "Release incomplete" in out
     assert "stopped during phase 6 (ci)" in out
@@ -603,7 +603,7 @@ def test_resume_from_every_phase_completes_a_genuinely_stopped_release(
     with pytest.raises(SystemExit) as stop_exc:
         run_release(str(root), version=_VERSION, dry_run=False)
 
-    assert stop_exc.value.code == 1
+    assert stop_exc.value.code == (1 if case.in_worker else 130)
     assert anchor.consumed == 1
     fresh_out = " ".join(capsys.readouterr().out.split())
     assert "Release incomplete" in fresh_out

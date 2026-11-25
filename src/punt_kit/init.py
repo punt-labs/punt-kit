@@ -1,4 +1,4 @@
-"""punt init — generate missing config files and report manual steps."""
+"""punt repo init — generate missing config files and report manual steps."""
 
 from __future__ import annotations
 
@@ -15,9 +15,9 @@ from rich.markup import escape
 
 from punt_kit.claude_markers import ClaudeMarkers
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.errors import CommandFailure, ReleaseError
 from punt_kit.init_beads import BeadsInit, BeadsInitError
 from punt_kit.permission_rules import RuleSet, Tier
-from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.tool_config import ToolConfigPatch
@@ -56,11 +56,11 @@ LANGUAGE_TOOLS: dict[str, tuple[str, ...]] = {
 }
 
 
-def run_init(path: str, *, language: str | None = None) -> None:
+def run_init(path: str, *, language: str | None = None) -> list[str]:
     """Detect project type, generate/update missing files, report manual steps.
 
-    *language* overrides auto-detection. When detection returns no language
-    and no override is given, prompts interactively (if stdin is a tty).
+    *language* overrides auto-detection; an empty string detects without
+    prompting. The default, None, allows a prompt on an interactive terminal.
     No file is ever rewritten from a guess at what it held.
 
     Raises:
@@ -68,52 +68,49 @@ def run_init(path: str, *, language: str | None = None) -> None:
             unreadable input file, or beads initialization failure.
     """
     try:
-        _init_project(path, language=language)
+        return _init_project(path, language=language)
     except ReleaseError as exc:
-        logger.info("Project initialization stopped: unreadable project files")
+        logger.info("Project initialization rejected a project or its input")
         console.print(f"[red]Error:[/red] {escape(str(exc))}")
-        raise SystemExit(1) from exc
+        raise CommandFailure(str(exc)) from exc
 
 
-def _init_project(path: str, *, language: str | None) -> None:
+def _init_project(path: str, *, language: str | None) -> list[str]:
     """Run every init step against the project at *path*."""
     root = Path(path).resolve()
     if not root.is_dir():
-        console.print(f"[red]Error:[/red] {escape(str(root))} is not a directory")
-        raise SystemExit(1)
+        raise ReleaseError(f"{root} is not a directory")
 
     info = detect(root)
 
-    if language is not None:
+    if language:
         if language not in SUPPORTED_LANGUAGES:
-            console.print(
-                f"[red]Error:[/red] unsupported language '{escape(language)}'"
+            raise ReleaseError(
+                f"unsupported language '{language}'"
                 f" — choose from: {', '.join(SUPPORTED_LANGUAGES)}"
             )
-            raise SystemExit(1)
         info = _with_language(info, language)
-    elif info.language is None:
+    elif info.language is None and language is None:
         prompted = _prompt_language()
         if prompted is not None:
             info = _with_language(info, prompted)
 
-    console.print(f"\n[bold]punt init[/bold] — {escape(root.name)}")
-    console.print(f"  Language:     {info.language or 'none'}")
-    console.print(f"  Project type: {info.project_type or 'unknown'}")
-    console.print(f"  MCP server:   {info.is_mcp_server}")
-    console.print(f"  Plugin:       {info.is_plugin}")
-    console.print(f"  CI exists:    {info.has_ci}")
-    console.print(f"  CLAUDE.md:    {info.has_claude_md}")
-    console.print(f"  Beads:        {info.has_beads}")
-    console.print()
+    console.print(
+        f"\n[bold]punt repo init[/bold] — {escape(root.name)}\n"
+        f"  Language:     {info.language or 'none'}\n"
+        f"  Project type: {info.project_type or 'unknown'}\n"
+        f"  MCP server:   {info.is_mcp_server}\n"
+        f"  Plugin:       {info.is_plugin}\n"
+        f"  CI exists:    {info.has_ci}\n"
+        f"  CLAUDE.md:    {info.has_claude_md}\n"
+        f"  Beads:        {info.has_beads}\n"
+    )
 
     # Read every file init will merge into BEFORE writing any, so a file it
     # cannot read fails the run with nothing half-initialised.
     _validate_inputs(info)
 
-    changed: list[str] = []
-
-    changed.extend(_init_workflows(info))
+    changed = _init_workflows(info)
     changed.extend(_init_python_config(info))
     beads_failure = _init_beads(info, changed)
     changed.extend(_init_claude_md(info))
@@ -131,10 +128,13 @@ def _init_project(path: str, *, language: str | None) -> None:
         logger.info("Project initialization found no files needing updates")
         console.print("\n[dim]No files needed updating.[/dim]")
 
-    _report_manual_steps(info)
+    _report_manual_steps()
     if beads_failure is not None:
         # Printed when it happened; run_init would only print it a second time.
-        raise SystemExit(1) from beads_failure
+        raise CommandFailure(
+            str(beads_failure), {"changes": changed}
+        ) from beads_failure
+    return changed
 
 
 def _init_beads(info: ProjectInfo, changed: list[str]) -> BeadsInitError | None:
@@ -176,19 +176,22 @@ def _validate_inputs(info: ProjectInfo) -> None:
 
 
 def _prompt_language() -> str | None:
-    """Prompt the user to choose a language if stdin is a tty."""
-    if not sys.stdin.isatty():
+    """Prompt the user to choose a language only on an interactive terminal."""
+    if not sys.stdin.isatty() or not sys.stderr.isatty():
         return None
 
-    console.print(
+    prompt = Console(stderr=True)
+    prompt.print(
         "[yellow]No language detected.[/yellow] Choose one (or press Enter to skip):"
     )
-    for i, lang in enumerate(SUPPORTED_LANGUAGES, 1):
-        console.print(f"  {i}. {lang}")
+    menu = dict(enumerate(SUPPORTED_LANGUAGES, 1))
+    for i, lang in menu.items():
+        prompt.print(f"  {i}. {lang}")
 
+    prompt.print("> ", end="")
     try:
-        choice = input("> ").strip()
-    except (EOFError, KeyboardInterrupt):
+        choice = input().strip()
+    except EOFError:
         return None
 
     if not choice:
@@ -198,14 +201,10 @@ def _prompt_language() -> str | None:
         return choice
 
     try:
-        idx = int(choice) - 1
-        if 0 <= idx < len(SUPPORTED_LANGUAGES):
-            return SUPPORTED_LANGUAGES[idx]
-    except ValueError:
-        pass
-
-    console.print(f"[red]Invalid choice:[/red] '{escape(choice)}'")
-    return None
+        return menu[int(choice)]
+    except (ValueError, KeyError):
+        prompt.print(f"[red]Invalid choice:[/red] '{escape(choice)}'")
+        return None
 
 
 def _with_language(info: ProjectInfo, language: str) -> ProjectInfo:
@@ -220,9 +219,7 @@ def _with_language(info: ProjectInfo, language: str) -> ProjectInfo:
     standards_refs = list(info.standards_refs)
     if language not in standards_refs:
         standards_refs.append(language)
-    if language == "python" and "cli" not in standards_refs:
-        standards_refs.append("cli")
-    if language == "go" and "cli" not in standards_refs:
+    if language in {"python", "go"} and "cli" not in standards_refs:
         standards_refs.append("cli")
 
     # replace(), not a field-by-field rebuild: this function overrides three
@@ -303,7 +300,7 @@ def _init_workflows(info: ProjectInfo) -> list[str]:
             rel = _relpath(target_path, info.root)
             console.print(
                 f"  [yellow]⚠[/yellow] {rel} differs from template"
-                " — use [bold]/punt reconcile[/bold] to review"
+                " — use [bold]/punt:reconcile[/bold] to review"
             )
             continue
         else:
@@ -383,7 +380,7 @@ def _build_quality_gates(info: ProjectInfo) -> str:
     if info.language == "python":
         return (
             "uv run ruff check . && uv run ruff format --check . "
-            "&& uv run mypy src/ tests/ && uv run pyright && uv run pytest"
+            "&& uv run mypy src/ tests/ && uv run pyright src/ tests/ && uv run pytest"
         )
     if info.language == "swift":
         return "make format && make lint && make test"
@@ -777,7 +774,7 @@ def _init_gitignore_locks(info: ProjectInfo) -> list[str]:
 
     Without it the root ``.CLAUDE.md.punt-import.lock`` dirties the tree after
     any tool's ``enable``, and the release clean-tree check refuses to run.
-    Re-running ``punt init`` adds the line to an already-initialized repo.
+    Re-running ``punt repo init`` adds the line to an already-initialized repo.
     """
     gitignore_path = info.root / ".gitignore"
     existing = TextFile(gitignore_path).read() if gitignore_path.exists() else ""
@@ -791,14 +788,13 @@ def _init_gitignore_locks(info: ProjectInfo) -> list[str]:
     return [rel]
 
 
-def _report_manual_steps(info: ProjectInfo) -> None:
+def _report_manual_steps() -> None:
     """Print steps that require manual action."""
-    template = TEMPLATES / "pr_agent.toml"
     steps: list[str] = [
         "Create branch protection ruleset on main"
         " (require PR, 0 approvals, status checks,"
         " conversation resolution, zero bypass actors)",
-        f"Copy {escape(str(template))} to .pr_agent.toml,"
+        f"Copy {escape(str(TEMPLATES / 'pr_agent.toml'))} to .pr_agent.toml,"
         " fill its placeholders, and merge it to main;"
         " set Qodo 'Review every push' to Disable and Bugbot to"
         " review each PR once (Cursor dashboard);"
