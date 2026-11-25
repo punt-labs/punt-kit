@@ -50,7 +50,7 @@
   },
   "src/punt_kit/audit_report.py": {
     "efferent_coupling": 2.0,
-    "public_names": 6.0,
+    "public_names": 7.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
@@ -661,8 +661,8 @@
     "efferent_coupling": 3.0,
     "public_names": 3.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.681,
-    "avg_lcom": 0.681
+    "max_lcom": 0.724,
+    "avg_lcom": 0.724
   },
   "src/punt_kit/pii_matcher.py": {
     "efferent_coupling": 1.0,
