@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `punt release` bumps uv workspace members that share the root version and
+  updates their matching exact dependency pins before refreshing `uv.lock`.
+
 - Derive the telemetry configuration path from Punt's shared home resolver
   without moving the existing `~/.punt-labs/punt/config.toml` (PL-1450).
 

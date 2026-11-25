@@ -17,9 +17,9 @@ from punt_kit.phases.shared.module_version import (
     UnpinnableVersionError,
 )
 from punt_kit.phases.shared.project_info import ReleaseProject
+from punt_kit.phases.shared.release_versions import ReleaseVersions
 from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.phases.shared.timeouts import UV
-from punt_kit.phases.shared.version_assignment import VersionAssignment
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -52,36 +52,6 @@ class Phase2VersionBump:
         self._ops = ops
         return self
 
-    @staticmethod
-    def _project_version(toml_text: str) -> object:
-        """Read the project version from TOML, or return None when absent."""
-        project = TextFile.parse_toml(toml_text, source="pyproject.toml").get("project")
-        if isinstance(project, dict):
-            return cast("dict[str, object]", project).get("version")
-        return None
-
-    def _bump_pyproject(self, path: Path) -> None:
-        """Set ``[project] version``; fail when it is there but cannot be set."""
-        content = TextFile(path).read()
-        if self._project_version(content) is None:
-            self._ops.info("pyproject.toml: no static version field — not bumped")
-            return
-        new_content, count = VersionAssignment("version").rewritten(
-            content, self._version
-        )
-        rewritten = self._project_version(new_content) if count else None
-        if rewritten != self._version:
-            self._ops.fail(
-                "pyproject.toml: [project] version is present but is not a line "
-                f'of the form version = "X.Y.Z", so it cannot be bumped to '
-                f"{self._version}; set it by hand"
-            )
-        if self._dry_run:
-            self._ops.dry(f'pyproject.toml: version = "{self._version}"')
-        else:
-            TextFile(path).write(new_content)
-            self._ops.ok(f'pyproject.toml: version = "{self._version}"')
-
     def _bump_init(self, path: Path) -> None:
         """Set a literal ``__version__``; leave a computed one; fail on the rest."""
         content = TextFile(path).read()
@@ -110,36 +80,19 @@ class Phase2VersionBump:
             TextFile(path).write(new_content)
             self._ops.ok(f'{path.name}: __version__ = "{self._version}"')
 
-    def _bump_install_sh(self, path: Path) -> None:
-        """Set ``VERSION``; fail when it is assigned but cannot be set."""
-        content = TextFile(path).read()
-        assignment = VersionAssignment.in_shell("VERSION")
-        new_content, count = assignment.rewritten(content, self._version)
-        if count == 0 and assignment.assigns_a_value(content):
-            self._ops.fail(
-                f"install.sh: `{assignment.computed_lines(content)[0]}` is not a plain "
-                f'quoted string (VERSION="X.Y.Z"), so VERSION cannot be bumped to '
-                f"{self._version}; set it by hand"
-            )
-        if count == 0 and assignment.is_assigned(content):
-            self._ops.warn(
-                "install.sh: VERSION is only ever reset to empty, so there is "
-                f"nothing to bump to {self._version}"
-            )
-        if len(lines := assignment.assigned_lines(content)) > 1:
-            shown = "; ".join(assignment.described_lines(content))
-            self._ops.warn(
-                f"install.sh: VERSION is assigned on {len(lines)} lines ({shown}); "
-                f"every plain one is bumped to {self._version}, but a "
-                "branch or a computed value may change which takes effect"
-            )
-        if new_content == content:
-            return
+    def _prepare_branch(self) -> GitWorkspace:
+        # Refresh main before branching, including when resuming without phase 1.
+        workspace = GitWorkspace(self._info.root, ops=self._ops)
+        branch = f"release/v{self._version}"
         if self._dry_run:
-            self._ops.dry(f'install.sh: VERSION="{self._version}"')
+            self._ops.dry(f"git checkout -b {branch}")
+            return workspace
+        workspace.ensure_on_main()
+        if workspace.checkout_or_create(branch):
+            self._ops.info(f"Checked out existing branch {branch}")
         else:
-            TextFile(path).write(new_content)
-            self._ops.ok(f'install.sh: VERSION="{self._version}"')
+            self._ops.ok(f"Created branch {branch}")
+        return workspace
 
     def run(self) -> None:
         """Bump pinned versions on the release branch.
@@ -158,24 +111,15 @@ class Phase2VersionBump:
         _console.print(f"\n[bold]Phase 2: Version bump → {version}[/bold]")
 
         root = info.root
-        branch = f"release/v{version}"
         project = ReleaseProject(info, ops=ops)
-        workspace = GitWorkspace(root, ops=ops)
-
-        # Refresh main before branching, including when resuming without phase 1.
-        if dry_run:
-            ops.dry(f"git checkout -b {branch}")
-        else:
-            workspace.ensure_on_main()
-            if workspace.checkout_or_create(branch):
-                ops.info(f"Checked out existing branch {branch}")
-            else:
-                ops.ok(f"Created branch {branch}")
+        versions = ReleaseVersions(version, dry_run=dry_run, ops=ops, file=TextFile)
+        workspace = self._prepare_branch()
 
         # A present static version must be rewritten successfully before tagging.
         pyproject_path = root / "pyproject.toml"
-        if pyproject_path.exists():
-            self._bump_pyproject(pyproject_path)
+        workspace_manifests = (
+            versions.bump_pyproject(pyproject_path) if pyproject_path.exists() else []
+        )
 
         pkg_dir = project.package_dir()
         if pkg_dir is not None:
@@ -197,7 +141,7 @@ class Phase2VersionBump:
 
         install_sh = root / "install.sh"
         if install_sh.exists():
-            self._bump_install_sh(install_sh)
+            versions.bump_install_sh(install_sh)
 
         changelog_path = root / "CHANGELOG.md"
         if changelog_path.exists():
@@ -228,6 +172,7 @@ class Phase2VersionBump:
         if pkg_dir is not None:
             release_files.append(pkg_dir / "__init__.py")
         release_files.extend(template_pins)
+        release_files.extend(workspace_manifests)
         to_stage = [str(p.relative_to(root)) for p in release_files if p.exists()]
         if workspace.commit_if_staged(to_stage, f"chore: release v{version}"):
             ops.ok("Release commit created")
