@@ -210,11 +210,11 @@ def status(
     path: str = typer.Argument(".", help="Path to the project root"),
 ) -> None:
     """Show detected project type, standards version, and beads state."""
-    from dataclasses import asdict
     from pathlib import Path
 
     from punt_kit.phases.shared.errors import ReleaseError
     from punt_kit.status import run_status
+    from punt_kit.status_view import StatusView
 
     resolved = Path(path).resolve()
     if not resolved.is_dir():
@@ -224,21 +224,11 @@ def status(
         info = run_status(path)
     except ReleaseError as exc:
         _die(str(exc))
+    view = StatusView(info)
     if _json_output:
-        typer.echo(json.dumps(asdict(info), default=str), color=True)
+        typer.echo(json.dumps(view.data(), default=str), color=True)
     elif not _quiet:
-        typer.echo(f"punt {info.punt_kit_version}", color=True)
-        if info.language:
-            typer.echo(f"Language:     {info.language}", color=True)
-        if info.project_type:
-            typer.echo(f"Project type: {info.project_type}", color=True)
-        if info.is_plugin:
-            typer.echo("Plugin:       yes", color=True)
-        if info.is_mcp_server:
-            typer.echo("MCP server:   yes", color=True)
-        if info.has_beads:
-            open_n, ip_n = info.beads_open, info.beads_in_progress
-            typer.echo(f"Beads:        {open_n} open, {ip_n} in progress", color=True)
+        typer.echo(view.text(), color=True)
     if info.beads_skipped and not _quiet:
         typer.echo(
             f"Warning: skipped {info.beads_skipped} malformed bead line(s)",

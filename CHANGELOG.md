@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Separate status rendering and command telemetry from the CLI adapter
+  without changing existing commands, output, or telemetry (PL-1519).
+
 ### Fixed
 
 - Derive the telemetry configuration path from Punt's shared home resolver
