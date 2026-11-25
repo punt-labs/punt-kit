@@ -37,18 +37,40 @@ class PluginInstaller:
 
     @staticmethod
     def _marketplace_git_env() -> dict[str, str]:
-        """Use HTTPS for the public marketplace without changing Git configuration."""
+        """Use HTTPS without inheriting another Git invocation's URL rewrites."""
         env = os.environ.copy()
+        env.pop("GIT_CONFIG_PARAMETERS", None)
         try:
-            index = int(env.get("GIT_CONFIG_COUNT", "0"))
+            count = int(env.get("GIT_CONFIG_COUNT", "0"))
         except ValueError as exc:
             raise ReleaseError(
                 "Invalid GIT_CONFIG_COUNT; check the Git environment"
             ) from exc
-        env[f"GIT_CONFIG_KEY_{index}"] = "url.https://github.com/punt-labs/.insteadOf"
-        env[f"GIT_CONFIG_VALUE_{index}"] = "git@github.com:punt-labs/"
-        env["GIT_CONFIG_COUNT"] = str(index + 1)
+        if not 0 <= count <= len(env) // 2:
+            raise ReleaseError("Invalid GIT_CONFIG_COUNT; check the Git environment")
+        pairs: list[tuple[str, str]] = []
+        for index in range(count):
+            key = env.pop(f"GIT_CONFIG_KEY_{index}", "")
+            value = env.pop(f"GIT_CONFIG_VALUE_{index}", None)
+            if not key or value is None:
+                raise ReleaseError("Incomplete Git configuration in the environment")
+            if not PluginInstaller._is_url_rewrite(key):
+                pairs.append((key, value))
+        pairs.append(
+            ("url.https://github.com/punt-labs/.insteadOf", "git@github.com:punt-labs/")
+        )
+        for index, (key, value) in enumerate(pairs):
+            env[f"GIT_CONFIG_KEY_{index}"] = key
+            env[f"GIT_CONFIG_VALUE_{index}"] = value
+        env["GIT_CONFIG_COUNT"] = str(len(pairs))
         return env
+
+    @staticmethod
+    def _is_url_rewrite(key: str) -> bool:
+        normalized = key.lower()
+        return normalized.startswith("url.") and normalized.endswith(
+            (".insteadof", ".pushinsteadof")
+        )
 
     def _claude(self, *args: str) -> str:
         """Run a non-interactive Claude plugin operation."""
@@ -145,8 +167,9 @@ class PluginInstaller:
             raise ReleaseError(
                 f"Claude Code did not report {_PLUGIN} installed at user scope"
             )
-        past = "Updated" if action == "update" else "Installed"
-        return f"{past} {_PLUGIN} at user scope"
+        if action == "update":
+            return f"Checked for updates to {_PLUGIN} at user scope"
+        return f"Installed {_PLUGIN} at user scope"
 
 
 def run_install() -> InstallReport:
