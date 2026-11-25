@@ -11,6 +11,7 @@ import tomlkit
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import InvalidSpecifier, Specifier
 from packaging.utils import canonicalize_name
+from packaging.version import InvalidVersion, Version
 from tomlkit.container import OutOfOrderTableProxy
 from tomlkit.exceptions import ParseError
 from tomlkit.items import Array, InlineTable, String, Table
@@ -209,6 +210,15 @@ class WorkspaceVersions:
         return manifests
 
     @staticmethod
+    def _same_version(value: object, expected: str) -> bool:
+        if not isinstance(value, str):
+            return False
+        try:
+            return Version(value) == Version(expected)
+        except InvalidVersion:
+            return value == expected
+
+    @staticmethod
     def _release_names(
         manifests: list[tuple[Path, TOMLDocument, _Table]],
         current: str,
@@ -220,8 +230,11 @@ class WorkspaceVersions:
             for path, _, project in manifests
             if isinstance(name := project.get("name"), str)
             and (
-                project.get("version") == current
-                or (project.get("version") == target and previous(path) == current)
+                WorkspaceVersions._same_version(project.get("version"), current)
+                or (
+                    WorkspaceVersions._same_version(project.get("version"), target)
+                    and WorkspaceVersions._same_version(previous(path), current)
+                )
             )
         }
 
@@ -244,7 +257,11 @@ class WorkspaceVersions:
             version = project.get("version")
             name = project.get("name")
             participates = isinstance(name, str) and canonicalize_name(name) in names
-            if isinstance(version, String) and version == current and current != target:
+            if (
+                isinstance(version, String)
+                and self._same_version(version, current)
+                and version != target
+            ):
                 project["version"] = self._replace_string(version, target)
             for dependencies in self._dependencies(document, project):
                 if self._rewrite_array(dependencies, names, current, target):

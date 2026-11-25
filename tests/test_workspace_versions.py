@@ -125,3 +125,26 @@ def test_exclude_matches_nested_workspace_paths(tmp_path: Path, exclude: str) ->
     )
     assert workspace is not None
     assert workspace.rewrites(text, "1.0.0", "2.0.0", lambda _: None).keys() == expected
+
+
+def test_equivalent_member_version_shares_the_root_release(tmp_path: Path) -> None:
+    root = tmp_path / "pyproject.toml"
+    text = (
+        '[project]\nname = "root"\nversion = "1.0"\n'
+        'dependencies = ["client==1.0.0"]\n'
+        '[tool.uv.workspace]\nmembers = ["client"]\n'
+    )
+    client = tmp_path / "client" / "pyproject.toml"
+    client.parent.mkdir()
+    client.write_text('[project]\nname = "client"\nversion = "1.0.0"\n')
+    workspace = WorkspaceVersions.from_manifest(
+        tmp_path, tomllib.loads(text), read=lambda path: path.read_text()
+    )
+    assert workspace is not None
+    previous = {client: "1.0.0"}.get
+
+    rewrites = workspace.rewrites(text, "1.0", "2.0", previous)
+    assert 'dependencies = ["client==2.0"]' in rewrites[root]
+    assert 'version = "2.0"' in rewrites[client]
+    client.write_text(rewrites[client])
+    assert workspace.rewrites(text, "1.0", "2.0", previous) == rewrites
