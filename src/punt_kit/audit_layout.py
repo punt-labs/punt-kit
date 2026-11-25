@@ -1,4 +1,4 @@
-"""Check the `.punt-labs/` layout for `punt audit` (punt-labs-dir.md PLD-11).
+"""Check the `.punt-labs/` layout for `punt repo audit` (punt-labs-dir.md PLD-11).
 
 Git probes determine verdicts; `.gitignore` text only explains failed probes.
 The tool-owned compatibility inventory supplies the paths to probe.

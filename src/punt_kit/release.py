@@ -1,4 +1,4 @@
-"""Run the deterministic ``punt release`` workflow for Punt Labs projects."""
+"""Run the deterministic ``punt release run`` workflow for Punt Labs projects."""
 
 from __future__ import annotations
 
@@ -431,16 +431,15 @@ def _print_incomplete_release(current_phase_num: int, resume_phase_num: int) -> 
     failure is still outstanding. Phase 0 means nothing had run yet.
     """
     if current_phase_num == 0:
-        if _interrupted.is_set():
-            console.print(
-                "[red]Release incomplete[/red] — interrupted before any phase ran."
-            )
-            console.print("  Nothing landed; run punt release again.")
-        else:
-            console.print(
-                "[red]Release incomplete[/red] — failed before any phase ran."
-            )
-            console.print("  Fix the error above, then run punt release again.")
+        reason, action = (
+            ("interrupted", "Nothing landed; run")
+            if _interrupted.is_set()
+            else ("failed", "Fix the error above, then run")
+        )
+        console.print(
+            f"[red]Release incomplete[/red] — {reason} before any phase ran.\n"
+            f"  {action} punt release run again."
+        )
         ReleasePipeline.print_manual_actions(_skips)
         return
     phase_label = PhaseOrder.name_of(current_phase_num)
@@ -458,7 +457,7 @@ def _print_incomplete_release(current_phase_num: int, resume_phase_num: int) -> 
             "above before choosing --resume-from."
         )
     else:
-        console.print(f"  Resume with: punt release --resume-from {resume_label}")
+        console.print(f"  Resume with: punt release run --resume-from {resume_label}")
     ReleasePipeline.print_manual_actions(_skips)
 
 
@@ -468,7 +467,7 @@ def run_release(
     version: str | None = None,
     dry_run: bool = False,
     resume_from: str | None = None,
-) -> None:
+) -> str:
     """Execute the release workflow.
 
     Phases 1–8 handle the originating repo. Phase 9 does post-release
@@ -541,8 +540,7 @@ def run_release(
             start = PhaseOrder.NUMBERS[resume_from]
 
         mode = "[bold yellow]DRY RUN[/bold yellow] — " if dry_run else ""
-        resume = f" (resuming from phase {start})" if start > 1 else ""
-        console.print(f"\n{mode}[bold]punt release[/bold] — {root.name}{resume}")
+        console.print(f"\n{mode}punt release run — {root.name} (from phase {start})")
         if info.language == "python" and start > PhaseOrder.NUMBERS["build"]:
             _skips.record(RESUMED_PAST_BUILD_SKIP)
 
@@ -603,7 +601,7 @@ def run_release(
                             "phase, where the new release tag does not "
                             "exist yet, so the latest git tag is still the "
                             "PREVIOUS release. Re-run with an explicit "
-                            "--version X.Y.Z."
+                            "operand: punt release run X.Y.Z."
                         )
                     version = _get_project_version(info)
                     source = "git tags" if info.language == "go" else "pyproject.toml"
@@ -729,6 +727,7 @@ def run_release(
                 project=ReleaseProject(info, ops=_ops),
                 skips=_skips,
             )
+            return version
         finally:
             if _interrupted.is_set():
                 ReleasePipeline.print_in_flight(sys.exc_info()[1])

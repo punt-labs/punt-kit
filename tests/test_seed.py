@@ -1,4 +1,4 @@
-"""Tests for punt seed — marker-based section management."""
+"""Tests for punt repo seed — marker-based section management."""
 
 from __future__ import annotations
 

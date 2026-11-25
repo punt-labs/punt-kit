@@ -25,7 +25,7 @@ Work is tracked in Linear (team Punt Labs, key `PL`); punt-kit's issues carry th
 
 punt-kit is both a Python package (`punt` CLI) and a Claude Code plugin
 (`punt@punt-labs` on the marketplace). The plugin wraps the CLI with slash
-commands (`/punt init`, `/punt audit`, `/punt reconcile`, etc.).
+commands (`/punt:init`, `/punt:audit`, `/punt:reconcile`, etc.).
 
 ### Key rules
 
@@ -186,7 +186,7 @@ which provides LLM-driven error diagnosis and a post-release verification step.
 
 The playbook has two steps:
 
-1. **`punt release`** (script) — the deterministic CLI (`src/punt_kit/release.py`)
+1. **`punt release run`** (script) — the deterministic CLI (`src/punt_kit/release.py`)
    that executes phases 1–11. On failure the executor diagnoses the error,
    attempts a fix, and re-runs (`on_failure: diagnose`).
 2. **Verify** (LLM judgment) — spot-checks that all artifacts landed correctly
@@ -196,7 +196,7 @@ The playbook has two steps:
 
 All main-branch changes go through PRs (zero bypass actors).
 
-### Phase structure (`punt release`)
+### Phase structure (`punt release run`)
 
 | Phase | Name | Description |
 |-------|------|-------------|

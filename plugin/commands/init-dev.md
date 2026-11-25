@@ -22,20 +22,20 @@ without changing the current directory or the meaning of relative target paths.
 First, run detection to see what we're working with:
 
 ```bash
-uv run --project "${CLAUDE_PLUGIN_ROOT}/.." punt init --language "" $ARGUMENTS 2>&1 || true
+uv run --project "${CLAUDE_PLUGIN_ROOT}/.." punt repo init --language "" $ARGUMENTS 2>&1 || true
 ```
 
 If the output shows `Language: none`, ask the user which language the project
 uses (python, node, swift) via AskUserQuestion, then re-run with the flag:
 
 ```bash
-uv run --project "${CLAUDE_PLUGIN_ROOT}/.." punt init --language <chosen-language> $ARGUMENTS
+uv run --project "${CLAUDE_PLUGIN_ROOT}/.." punt repo init --language <chosen-language> $ARGUMENTS
 ```
 
 If a language was detected, just run:
 
 ```bash
-uv run --project "${CLAUDE_PLUGIN_ROOT}/.." punt init $ARGUMENTS
+uv run --project "${CLAUDE_PLUGIN_ROOT}/.." punt repo init $ARGUMENTS
 ```
 
 Report the output to the user. Explain what files were generated and what manual steps remain.

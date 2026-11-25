@@ -1,4 +1,4 @@
-"""Run the ``bd init`` step for ``punt init``."""
+"""Run the ``bd init`` step for ``punt repo init``."""
 
 from __future__ import annotations
 

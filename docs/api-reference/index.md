@@ -71,4 +71,4 @@ Other Python modules house CLI implementation details.
 
 ::: punt_kit.release.run_release
 
-::: punt_kit.pii.run_pii
+::: punt_kit.pii_checkout.run_pii

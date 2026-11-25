@@ -69,11 +69,23 @@ def test_real_private_entrypoint_files(tmp_path: Path) -> None:
     ]
 
 
+def test_nested_parse_error_records_requested_json(tmp_path: Path) -> None:
+    result = _run(tmp_path, "repo", "not-a-command", "--json")
+
+    assert result.returncode == 2
+    assert "No such command" in json.loads(result.stdout)["error"]
+    assert _rows(tmp_path)[0][3] == {
+        "command": "repo",
+        "json": True,
+        "outcome": "error",
+    }
+
+
 @pytest.mark.parametrize(
     "args,command,exit_code,outcome",
     [
         (["status", "/nonexistent-punt-observe-test"], "status", 1, "error"),
-        (["--verbose", "--quiet", "version"], "version", 1, "error"),
+        (["--verbose", "--quiet", "version"], "version", 2, "error"),
         (["version", "--invalid-option"], "version", 2, "error"),
         ([], "punt", 0, "ok"),
         (["--help"], "punt", 0, "ok"),

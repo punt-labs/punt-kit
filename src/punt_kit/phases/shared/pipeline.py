@@ -240,7 +240,7 @@ class ReleasePipeline:
         else:
             resume_hint = (
                 f"Investigate the command, then resume with "
-                f"punt release --resume-from {resume_label}."
+                f"punt release run --resume-from {resume_label}."
             )
         if phase_label == "unknown":
             location = "before the first phase started"

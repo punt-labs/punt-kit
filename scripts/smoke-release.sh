@@ -136,10 +136,10 @@ cd "$proj"
 git init --quiet
 printf '%s\n' '[project]' 'name = "smoke-demo"' 'version = "0.1.0"' \
     '[project.scripts]' 'smoke-demo = "smoke_demo.cli:app"' >pyproject.toml
-"$punt" init . >"$work/init.txt" 2>&1 || { cat "$work/init.txt"; fail "punt init failed"; }
+"$punt" repo init . >"$work/init.txt" 2>&1 || { cat "$work/init.txt"; fail "punt repo init failed"; }
 for f in .github/workflows/lint.yml .github/workflows/test.yml .github/workflows/docs.yml \
     .github/workflows/release.yml .claude/settings.json CLAUDE.md; do
-    [ -s "$f" ] || fail "punt init did not create $f"
+    [ -s "$f" ] || fail "punt repo init did not create $f"
 done
 grep -q '^  published-smoke:$' .github/workflows/release.yml \
     || fail "scaffolded release.yml has no published-smoke job"
@@ -149,10 +149,10 @@ grep -qF '"smoke-demo==$version"' .github/workflows/release.yml \
 
 # The audit fails on files init leaves to the author; every check init owns must pass.
 set +e
-"$punt" audit . >"$work/audit.txt" 2>&1
+"$punt" repo audit . >"$work/audit.txt" 2>&1
 audit_rc=$?
 set -e
-[ "$audit_rc" -le 1 ] || { cat "$work/audit.txt"; fail "punt audit crashed (exit $audit_rc)"; }
+[ "$audit_rc" -le 1 ] || { cat "$work/audit.txt"; fail "punt repo audit crashed (exit $audit_rc)"; }
 for check in "CI lint workflow exists" "CI test workflow exists" "CI docs workflow exists" \
     "Linting configured ([tool.ruff])" "Type checking configured ([tool.mypy])" \
     "Type checking configured ([tool.pyright])" "Test config exists ([tool.pytest.ini_options])" \
@@ -178,4 +178,68 @@ if got != want:
     sys.exit(f"::error::punt status: expected {want}, got {got}")
 PY
 
-echo "Release smoke passed ($mode): punt-kit $version scaffolded, audited and inspected a Python project"
+"$py" -I - "$punt" <<'PY'
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+punt = sys.argv[1]
+leaves = (
+    ("repo", "init"),
+    ("repo", "audit"),
+    ("repo", "scan-pii"),
+    ("repo", "seed"),
+    ("release", "run"),
+    ("enable",),
+    ("disable",),
+    ("status",),
+    ("doctor",),
+    ("version",),
+    ("install",),
+)
+
+def run(*args, env=None):
+    return subprocess.run(
+        [punt, *args], capture_output=True, text=True, timeout=60, env=env
+    )
+
+for path in ((), ("repo",), ("release",), *leaves):
+    short, long = run(*path, "-h"), run(*path, "--help")
+    assert short.returncode == long.returncode == 0, (path, short.stderr)
+    assert short.stdout == long.stdout and "Usage:" in short.stdout, path
+assert run().stdout == run("-h").stdout
+print("Installed CLI: bare help and both help flags at every command path")
+
+def result(args, code, *, env=None):
+    invocation = run(*args, env=env)
+    assert invocation.returncode == code, (args, invocation)
+    value = json.loads(invocation.stdout)
+    if code:
+        assert isinstance(value["error"], str), (args, value)
+    return value
+
+assert "changes" in result(("repo", "init", "--json"), 0)
+assert result(("repo", "--json", "audit"), 1)["failed"] > 0
+assert result(("repo", "scan-pii", "--staged", "--json"), 0)["findings"] == []
+seed = result(("repo", "seed", "makefile", "-n", "--json"), 0)
+assert seed["would_change"] == ["Makefile"] and not Path("Makefile").exists()
+assert "error" in result(("release", "run", "--path", "missing", "--json"), 1)
+assert "requires an argument" in result(("release", "run", "--path", "--json"), 2)["error"]
+assert result(("enable", "--json"), 0)["changes"]
+assert result(("disable", "--json"), 0)["changes"]
+assert result(("status", "--json"), 0)["language"] == "python"
+doctor = run("doctor", "--json")
+health = json.loads(doctor.stdout)
+assert doctor.returncode in (0, 1)
+assert health if doctor.returncode == 0 else health["error"] and health["checks"]
+assert "version" in result(("-q", "version", "--json"), 0)
+assert "Claude Code" in result(("install", "--json"), 1, env={**os.environ, "PATH": ""})["error"]
+for old in ("init", "audit", "pii", "seed", "--version", "-V"):
+    result((old, "--json"), 2)
+result(("release", "--dry-run", "--json"), 2)
+print("Installed CLI: JSON for every verb, including operation and parser failures")
+PY
+
+echo "Release smoke passed ($mode): punt-kit $version"

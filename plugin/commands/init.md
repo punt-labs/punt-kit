@@ -17,20 +17,20 @@ Project path: $ARGUMENTS (defaults to `.` if empty)
 First, run detection to see what we're working with:
 
 ```bash
-punt init --language "" $ARGUMENTS 2>&1 || true
+punt repo init --language "" $ARGUMENTS 2>&1 || true
 ```
 
 If the output shows `Language: none`, ask the user which language the project
 uses (python, node, swift) via AskUserQuestion, then re-run with the flag:
 
 ```bash
-punt init --language <chosen-language> $ARGUMENTS
+punt repo init --language <chosen-language> $ARGUMENTS
 ```
 
 If a language was detected, just run:
 
 ```bash
-punt init $ARGUMENTS
+punt repo init $ARGUMENTS
 ```
 
 Report the output to the user. Explain what files were generated and what manual steps remain.

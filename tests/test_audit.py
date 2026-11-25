@@ -336,7 +336,7 @@ def test_audit_hybrid_fails_missing_release_scripts(
     """A hybrid project without the release scripts fails.
 
     The scripts drive the name swap that the release tag lands on, and a
-    hybrid project releases through `punt release`, which runs them.
+    hybrid project releases through `punt release run`, which runs them.
     """
     _make_compliant_hybrid(tmp_path)
     (tmp_path / "scripts" / "release-plugin.sh").unlink()
@@ -1004,7 +1004,7 @@ def test_audit_tolerates_malformed_settings_local(tmp_path: Path) -> None:
 def test_audit_hint_points_at_init_for_fixable_rules(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A dead rule in a well-formed tier is one punt init can remove."""
+    """A dead rule in a well-formed tier is one punt repo init can remove."""
     _make_compliant_python(tmp_path)
     _append_rule(tmp_path, "deny", "Write(.env)")
 
@@ -1012,7 +1012,7 @@ def test_audit_hint_points_at_init_for_fixable_rules(
         run_audit(str(tmp_path))
 
     out = capsys.readouterr().out
-    assert "run punt init" in out
+    assert "run punt repo init" in out
     assert "hand" not in out
 
 
@@ -1048,7 +1048,7 @@ def test_audit_hint_covers_both_kinds(
         run_audit(str(tmp_path))
 
     out = capsys.readouterr().out
-    assert "run punt init" in out
+    assert "run punt repo init" in out
     assert "hand" in out
 
 

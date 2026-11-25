@@ -628,10 +628,10 @@ class SlugParsing:
         self._tree = ast.parse(source)
         return self
 
-    def lines(self) -> list[int]:
+    def lines(self, *, git_rewrite_values: tuple[str, ...] = ()) -> list[int]:
         """Line numbers of a ``/`` split of a remote, or a github.com literal.
 
-        Docstrings describe a URL without parsing one, so they are skipped.
+        Skip docstrings and known fixed Git configuration values, not parsing calls.
         """
         docs = self._docstrings()
         return sorted(
@@ -642,6 +642,7 @@ class SlugParsing:
                 or (
                     isinstance(node, ast.Constant)
                     and id(node) not in docs
+                    and node.value not in git_rewrite_values
                     and self._names_github_host(node)
                 )
             }
@@ -725,11 +726,22 @@ def test_the_slug_scan_ignores_everything_else(source: str) -> None:
 
 
 def test_only_repo_slug_reads_an_owner_and_repo_out_of_a_remote() -> None:
+    # The plugin installer passes these literal prefixes to Git instead of parsing them.
+    git_rewrites = {
+        "install.py": (
+            "url.https://github.com/punt-labs/.insteadOf",
+            "git@github.com:punt-labs/",
+        ),
+    }
     parsers = {
         str(path.relative_to(_PACKAGE)): lines
         for path in sorted(_PACKAGE.rglob("*.py"))
         if path.name not in _SLUG_MODULES
-        if (lines := SlugParsing(path.read_text("utf-8")).lines())
+        if (
+            lines := SlugParsing(path.read_text("utf-8")).lines(
+                git_rewrite_values=git_rewrites.get(path.name, ())
+            )
+        )
     }
     assert parsers == {}
 

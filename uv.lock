@@ -699,7 +699,7 @@ requires-dist = [
     { name = "punt-observe", specifier = "==0.1.1" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "tomli-w", specifier = ">=1.0.0" },
-    { name = "typer", specifier = ">=0.15.0" },
+    { name = "typer", specifier = ">=0.29.1,<0.30" },
 ]
 
 [package.metadata.requires-dev]

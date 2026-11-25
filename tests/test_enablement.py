@@ -29,7 +29,7 @@ def _settings(root: Path) -> dict[str, dict[str, list[str]]]:
 
 
 def _failures(root: Path) -> list[str]:
-    result = runner.invoke(app, ["audit", str(root)])
+    result = runner.invoke(app, ["repo", "audit", str(root)])
     return [line for line in result.output.splitlines() if FAIL in line]
 
 
@@ -233,7 +233,7 @@ class TestHardening:
         (tmp_path / ".punt-labs").write_text("a file, not a directory")
         result = runner.invoke(app, ["--json", "enable", str(tmp_path)])
         assert result.exit_code == 1
-        assert "Skill(punt:*)" in json.loads(result.output)["error"]
+        assert "Not a directory" in json.loads(result.stdout)["error"]
 
     def test_disable_runs_with_a_symlinked_guide(self, tmp_path: Path) -> None:
         PuntEnablement(tmp_path).enable()

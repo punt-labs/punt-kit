@@ -20,7 +20,7 @@ Run in the user's current directory. `${CLAUDE_PLUGIN_ROOT}` is punt-kit's
 without changing the current directory or the meaning of relative target paths.
 
 ```bash
-uv run --project "${CLAUDE_PLUGIN_ROOT}/.." punt audit $ARGUMENTS
+uv run --project "${CLAUDE_PLUGIN_ROOT}/.." punt repo audit $ARGUMENTS
 ```
 
 Report the output to the user. Summarize the pass/fail results.

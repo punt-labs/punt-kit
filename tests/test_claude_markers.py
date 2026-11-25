@@ -1,4 +1,4 @@
-"""Legacy CLAUDE.md marker migration through punt init."""
+"""Legacy CLAUDE.md marker migration through punt repo init."""
 
 import shutil
 import subprocess

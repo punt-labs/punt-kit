@@ -5158,7 +5158,7 @@ def test_reset_propagation_siblings_leaves_unrelated_dirty_untouched(
             "docs/notes.md": original_unrelated,
         },
     )
-    # Operator work — not owned by punt release.
+    # Operator work — not owned by punt release run.
     (sib / "docs" / "notes.md").write_text("operator edited this\n")
 
     def fake_resolve(_root: object, name: str) -> Path | None:
@@ -9433,7 +9433,7 @@ def test_release_plugin_swaps_a_plugin_with_no_commands(tmp_path: Path) -> None:
     """A skills-only plugin releases on the name swap alone.
 
     plugins.md allows a plugin that ships only skills, agents, or hooks, and
-    `punt audit` reports a missing commands/ as informational. Aborting the
+    `punt repo audit` reports a missing commands/ as informational. Aborting the
     release preparation here would block such a plugin from ever tagging.
     """
     root = tmp_path / "repo"

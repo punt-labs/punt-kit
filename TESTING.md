@@ -37,7 +37,7 @@ than the checkout's `.tmp`.
 | Merge to main | The same workflows run on the main commit. | Same as PR | Red main triggers CI triage; Biff notifies |
 | Nightly | `nightly.yml` on upstream `main` only, Ubuntu and macOS: `make test-nightly` lists quarantines (and rejects invalid ones), runs the default suite with coverage and the installed-wheel smoke. | 30 min job timeout | Biff wall to the team; not a PR check |
 | Release candidate | `release.yml` `candidate-smoke`: the exact wheel `build` produced for the tag, installed in a clean venv, runs `scripts/smoke-release.sh candidate`. | 10 min job timeout | Blocks the `pypi` job |
-| Post-release | `release.yml` `published-smoke`: `punt-kit==<tag>` from production PyPI, byte-compared with the candidate wheel, runs the same operations. | 10 min job timeout, retries for index propagation | Fails the release run; `punt release` phase `ci` stops; Biff notifies |
+| Post-release | `release.yml` `published-smoke`: `punt-kit==<tag>` from production PyPI, byte-compared with the candidate wheel, runs the same operations. | 10 min job timeout, retries for index propagation | Fails the release run; `punt release run` phase `ci` stops; Biff notifies |
 
 ## Test kinds
 
@@ -45,7 +45,7 @@ than the checkout's `.tmp`.
 | --- | --- | --- |
 | Unit and component | `make test` (pytest default selection: everything except `quarantine`) | Yes. Command layers run in-process through Typer's `CliRunner`. |
 | Subprocess | Part of the default suite: tests that run real `git`, shell and Python children against temporary repositories. | Yes. Credential-free and local. |
-| End-to-end | `make smoke-candidate` installs the built wheel and drives the installed `punt` binary: `punt init`, `punt audit` and `punt --json status` on a scaffolded project. | Yes |
+| End-to-end | `make smoke-candidate` installs the built wheel and drives the installed `punt` binary: `punt repo init`, `punt repo audit` and `punt --json status` on a scaffolded project. | Yes |
 | Domain | `make lint` runs `tools/check_standards.py`, which checks every standard and rule file for clause IDs, `Applies to:` lines and links. | Yes |
 | Live | `uv run python tools/record_gh_fixtures.py --check` replays the recorded read-only `gh` commands and compares response shapes. Needs an authenticated `gh`. | Yes, manual. |
 | Agent | The plugin under `plugin/` needs a real Claude Code session. | Manual only; see [Deviations](#deviations) |

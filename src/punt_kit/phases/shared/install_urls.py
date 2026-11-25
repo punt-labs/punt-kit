@@ -57,7 +57,7 @@ class InstallUrlRecognizer:
 
     ``ReadmeShaPin.bump`` (which rewrites pins and then verifies its own
     output), the website propagator, Phase 11 (which verifies the published
-    README and the website's ``installCommand``) and ``punt audit`` recognize
+    README and the website's ``installCommand``) and ``punt repo audit`` recognize
     pins through this class, so they cannot disagree about what a pin is. A
     test fails if any other module builds a regex for an install URL.
 
