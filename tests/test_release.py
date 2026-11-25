@@ -839,6 +839,13 @@ def test_version_bump_locks_and_commits_workspace_members(
         path.parent.mkdir(parents=True)
         path.write_text(f'[project]\nname = "{name}"\nversion = "0.1.0"\n')
         manifests.append(path)
+    unmanaged = root / "packages" / "unmanaged" / "pyproject.toml"
+    unmanaged.parent.mkdir()
+    unmanaged_text = (
+        '[project]\nname = "unmanaged"\nversion = "0.1.0"\n'
+        '[tool.uv]\nmanaged = false\ndev-dependencies = ["client==0.1.0"]\n'
+    )
+    unmanaged.write_text(unmanaged_text)
 
     subprocess.run(["uv", "lock", "--offline"], cwd=root, check=True)
     _commit_all(root, "add workspace")
@@ -863,6 +870,8 @@ def test_version_bump_locks_and_commits_workspace_members(
     assert {str(path.relative_to(root)) for path in manifests} | {"uv.lock"} <= set(
         _commit_files(root)
     )
+    assert str(unmanaged.relative_to(root)) not in _commit_files(root)
+    assert unmanaged.read_text() == unmanaged_text
     subprocess.run(["uv", "lock", "--check", "--offline"], cwd=root, check=True)
 
 
