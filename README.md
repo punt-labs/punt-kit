@@ -38,6 +38,8 @@ punt install
 ```
 
 Use a punt-kit version that includes the command tree below.
+If your Git command settings supply an `includeIf` entry, move it to your
+Git configuration (for example, `~/.gitconfig`) before running `punt install`.
 
 </details>
 
