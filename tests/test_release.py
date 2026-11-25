@@ -818,7 +818,10 @@ def test_version_bump_dry_run_no_changes(tmp_path: Path) -> None:
     assert 'version = "0.1.0"' in content
 
 
-def test_version_bump_locks_and_commits_workspace_members(tmp_path: Path) -> None:
+@pytest.mark.parametrize("resume", [False, True], ids=["fresh", "resume"])
+def test_version_bump_locks_and_commits_workspace_members(
+    tmp_path: Path, resume: bool
+) -> None:
     root = _make_release_project(tmp_path)
     pyproject = root / "pyproject.toml"
     pyproject.write_text(
@@ -844,6 +847,13 @@ def test_version_bump_locks_and_commits_workspace_members(tmp_path: Path) -> Non
 
     _phase2_version_bump(info, "0.2.0", dry_run=True)
     assert [path.read_bytes() for path in manifests] == before
+
+    if resume:
+        _git(["checkout", "-b", "release/v0.2.0"], cwd=str(root))
+        for path in manifests[:2]:
+            path.write_text(
+                path.read_text().replace('version = "0.1.0"', 'version = "0.2.0"')
+            )
 
     _phase2_version_bump(info, "0.2.0", dry_run=False)
 
