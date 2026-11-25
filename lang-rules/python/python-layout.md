@@ -71,7 +71,7 @@ recognizable data to check that it is neither loaded nor altered.
 
 ## PY-PLD-4: Test the ignore boundary with Git
 
-**Implements:** PLD-4 · **Gate:** `punt audit`; `uv run pytest tests/test_audit_layout.py tests/test_repo_gitignore.py`
+**Implements:** PLD-4 · **Gate:** `punt repo audit`; `uv run pytest tests/test_audit_layout.py tests/test_repo_gitignore.py`
 
 Use these canonical patterns in the root ignore file:
 
@@ -182,7 +182,7 @@ writers; forward integration replaces the legacy location.
 
 ## PY-PLD-11: Grade the compatibility inventory per artifact
 
-**Implements:** PLD-11 · **Gate:** `punt audit`; `uv run pytest tests/test_adoption_table.py tests/test_audit_layout.py`
+**Implements:** PLD-11 · **Gate:** `punt repo audit`; `uv run pytest tests/test_adoption_table.py tests/test_audit_layout.py`
 
 Read concrete paths from `adoption_table.py` and keep its inventory in sync
 with [the tool reference](../../docs/repo-layout.md). A row with migrates=False

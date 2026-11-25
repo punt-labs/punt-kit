@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import random
 import subprocess
 import sys
@@ -10,7 +11,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_kit.pii import PiiConfig, load_config, run_pii, scan_file
+from punt_kit.errors import CommandFailure
+from punt_kit.pii import PiiConfig, load_config, scan_file
+from punt_kit.pii_checkout import run_pii
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -375,8 +378,70 @@ def test_staged_mode(tmp_path: Path) -> None:
 
     subprocess.run(["git", "add", "dirty.py"], cwd=str(tmp_path), capture_output=True)
 
+    # A worktree cleanup does not change what is about to be committed.
+    (tmp_path / "dirty.py").write_text("x = 1\n")
     with pytest.raises(SystemExit, match="1"):
         run_pii(str(tmp_path), staged=True)
+
+
+def test_staged_scan_ignores_gitlinks_and_still_reports_file_findings(
+    tmp_path: Path,
+) -> None:
+    _init_git(tmp_path)
+    _add_and_commit(tmp_path)
+    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=tmp_path)
+    subprocess.run(
+        [
+            "git",
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            "160000",
+            head.decode().strip(),
+            "a",
+        ],
+        check=True,
+        cwd=tmp_path,
+    )
+    (tmp_path / "z.txt").write_text("person@private.com\n")
+    subprocess.run(["git", "add", "z.txt"], check=True, cwd=tmp_path)
+
+    with pytest.raises(CommandFailure) as error:
+        run_pii(str(tmp_path), staged=True)
+    assert error.value.details["files_scanned"] == 1
+    assert json.loads(json.dumps(error.value.details))["findings"] == [
+        {"file": "z.txt", "line": 1, "category": "email"}
+    ]
+
+
+@pytest.mark.parametrize("staged", [False, True])
+def test_scan_reads_symlink_targets_without_following_them(
+    tmp_path: Path, staged: bool
+) -> None:
+    _init_git(tmp_path)
+    (tmp_path / "link").symlink_to("person@private.com")
+    subprocess.run(["git", "add", "link"], check=True, cwd=tmp_path)
+
+    with pytest.raises(CommandFailure) as error:
+        run_pii(str(tmp_path), staged=staged)
+    assert error.value.details["findings"] == [
+        {"file": "link", "line": 1, "category": "email"}
+    ]
+
+
+@pytest.mark.parametrize("config", [None, 'deny = "classified"\n'])
+def test_scan_rejects_a_missing_or_malformed_explicit_config(
+    tmp_path: Path, config: str | None
+) -> None:
+    _init_git(tmp_path)
+    path = tmp_path / "custom.toml"
+    if config is not None:
+        path.write_text(config)
+
+    with pytest.raises(CommandFailure) as error:
+        run_pii(str(tmp_path), config=str(path))
+    expected = "custom.toml" if config is None else "list of strings"
+    assert expected in error.value.message
 
 
 def test_load_config_reads_a_pyproject_and_standalone_file_with_a_bom(

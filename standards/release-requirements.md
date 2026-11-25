@@ -23,7 +23,7 @@ installed metadata, never a hand-written literal (see
 The manifest row is relative to the plugin root rather than the repo root:
 `plugin/.claude-plugin/plugin.json` under the DES-025 layout, and
 `.claude-plugin/plugin.json` when the plugin root is the repo root.
-`punt release` resolves both.
+`punt release run` resolves both.
 
 ### Changelog
 

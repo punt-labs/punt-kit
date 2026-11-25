@@ -133,7 +133,7 @@ Step commands and contexts can reference parameters by name using `${name}`
 syntax. The executor substitutes scalar values before execution:
 
 ```yaml
-command: punt release ${version}
+command: punt release run ${version}
 ```
 
 ### Substitution rules

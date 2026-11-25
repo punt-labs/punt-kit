@@ -213,21 +213,21 @@ class ReleasePipeline:
             cls.print_crash(exc)
 
     @staticmethod
-    def print_crash(exc: Exception) -> None:
-        """Report an unexpected exception: one line if operational, else a trace."""
+    def print_crash(exc: Exception) -> str:
+        """Print the crash and return its one-line diagnostic."""
         line = OperationalFailure.report(exc)
         if OperationalFailure.covers(exc):
             _console.print(f"[red]Error:[/red] {escape(line)}")
+        return line
 
     @staticmethod
     def print_timeout(
         exc: subprocess.TimeoutExpired, current_phase_num: int, resume_phase_num: int
-    ) -> None:
-        """Report a command that did not return: where, and how to resume."""
+    ) -> str:
+        """Print and return a diagnosis with the timeout and resume advice."""
         raw_cmd = cast("object", exc.cmd)
         if isinstance(raw_cmd, list | tuple):
-            parts = cast("Sequence[object]", raw_cmd)
-            cmd_str = " ".join(map(str, parts))
+            cmd_str = " ".join(map(str, cast("Sequence[object]", raw_cmd)))
         else:
             cmd_str = str(raw_cmd)
         phase_label = PhaseOrder.name_of(current_phase_num)
@@ -240,17 +240,17 @@ class ReleasePipeline:
         else:
             resume_hint = (
                 f"Investigate the command, then resume with "
-                f"punt release --resume-from {resume_label}."
+                f"punt release run --resume-from {resume_label}."
             )
-        if phase_label == "unknown":
-            location = "before the first phase started"
-        else:
+        location = "before the first phase started"
+        if phase_label != "unknown":
             location = f"in phase {current_phase_num} ({phase_label})"
-        _console.print(
-            f"[red]Error:[/red] release aborted {location} — "
-            f"`{escape(RepoSlug.redacted(cmd_str))}` did not return "
-            f"within {exc.timeout}s. {resume_hint}"
+        message = (
+            f"release aborted {location} — `{RepoSlug.redacted(cmd_str)}` "
+            f"did not return within {exc.timeout}s. {resume_hint}"
         )
+        _console.print(f"[red]Error:[/red] {escape(message)}")
+        return message
 
     def summarize(
         self,

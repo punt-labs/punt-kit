@@ -37,7 +37,7 @@ steps:
     type: llm
     context: |
       For each project in the target list, check whether it already meets
-      the standard. Use punt audit if applicable, or manually inspect the
+      the standard. Use punt repo audit if applicable, or manually inspect the
       relevant files. Build a list of:
       - Already compliant (skip)
       - Needs update (will patch)

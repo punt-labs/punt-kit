@@ -1,4 +1,4 @@
-"""Check GitHub rulesets and Dependabot alerts for `punt audit`."""
+"""Check GitHub rulesets and Dependabot alerts for `punt repo audit`."""
 
 from __future__ import annotations
 

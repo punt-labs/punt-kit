@@ -1,4 +1,4 @@
-"""punt audit — compliance check against Punt Labs standards."""
+"""punt repo audit — compliance check against Punt Labs standards."""
 
 from __future__ import annotations
 
@@ -17,10 +17,18 @@ from rich.markup import escape
 from punt_kit.audit_github import GithubSettingsAudit
 from punt_kit.audit_layout import LayoutAudit
 from punt_kit.audit_permissions import PermissionsAudit
-from punt_kit.audit_verdict import FAIL, FIXED, INFO, PASS
+from punt_kit.audit_report import (
+    FAIL,
+    FIXED,
+    INFO,
+    PASS,
+    AuditOptions,
+    AuditReport,
+    Findings,
+)
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.errors import CommandFailure, ReleaseError
 from punt_kit.git_checkout import GitCheckout
-from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.install_urls import InstallUrl, InstallUrlRecognizer
 from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.text_file import TextFile
@@ -32,10 +40,8 @@ if TYPE_CHECKING:
 console = Console(emoji=False)
 logger = logging.getLogger(__name__)
 
-# One audit finding: (status, label, detail).
-type _Findings = list[tuple[str, str, str]]
-
 TEMPLATES = importlib.resources.files("punt_kit") / "templates"
+_DEFAULTS = AuditOptions()
 
 
 def _doctor_invocation(binaries: list[str]) -> re.Pattern[str]:
@@ -55,12 +61,12 @@ def _doctor_invocation(binaries: list[str]) -> re.Pattern[str]:
     )
 
 
-def run_audit(path: str, *, fix: bool = False) -> None:
+def run_audit(path: str, *, options: AuditOptions = _DEFAULTS) -> tuple[int, int]:
     """Check a project against Punt Labs standards and print the findings.
 
     Args:
         path: Project directory to audit.
-        fix: Create missing mechanical files from templates.
+        options: Whether to create missing files or suppress routine output.
 
     Raises:
         SystemExit: With status 1 when ``path`` is not a directory, its
@@ -68,32 +74,34 @@ def run_audit(path: str, *, fix: bool = False) -> None:
     """
     root = Path(path).resolve()
     if not root.is_dir():
-        logger.info("Audit rejected a non-directory target")
-        console.print(f"[red]Error:[/red] {root} is not a directory")
-        raise SystemExit(1)
+        message = f"{root} is not a directory"
+        console.print(f"[red]Error:[/red] {escape(message)}")
+        raise CommandFailure(message)
 
     try:
         info = detect(root)
     except ReleaseError as exc:
         logger.info("Audit stopped because project files could not be read")
-        console.print(f"\n[bold]punt audit[/bold] — {root.name}")
+        console.print(f"\n[bold]punt repo audit[/bold] — {root.name}")
         console.print(f"  {FAIL} Project files are readable")
         console.print(f"      [dim]{escape(str(exc))}[/dim]")
-        raise SystemExit(1) from exc
+        raise CommandFailure(str(exc)) from exc
 
-    mode = "[bold]punt audit --fix[/bold]" if fix else "[bold]punt audit[/bold]"
-    console.print(f"\n{mode} — {root.name}")
-    lang = info.language or "none"
-    ptype = info.project_type or "unknown"
-    console.print(f"  Language: {lang}  Type: {ptype}\n")
+    if not options.quiet:
+        suffix = " --fix" if options.fix else ""
+        console.print(
+            f"\n[bold]punt repo audit{suffix}[/bold] — {escape(root.name)}\n"
+            f"  Language: {info.language or 'none'}"
+            f"  Type: {info.project_type or 'unknown'}\n"
+        )
 
-    checks: tuple[Callable[[], _Findings], ...] = (
+    checks: tuple[Callable[[], Findings], ...] = (
         partial(_check_ci, info),
         partial(_check_tool_config, info),
-        partial(_check_markdownlint, info, fix=fix),
+        partial(_check_markdownlint, info, fix=options.fix),
         partial(_check_markdownlint_content, info),
-        partial(_check_py_typed, info, fix=fix),
-        partial(_check_changelog, info, fix=fix),
+        partial(_check_py_typed, info, fix=options.fix),
+        partial(_check_changelog, info, fix=options.fix),
         partial(_check_beads, info),
         partial(_check_claude_md, info),
         PermissionsAudit(info).findings,
@@ -105,33 +113,12 @@ def run_audit(path: str, *, fix: bool = False) -> None:
         partial(_check_plugin_version_sync, info),
         GithubSettingsAudit(info.root).findings,
     )
-    results = [finding for check in checks for finding in _guarded(check)]
-
-    passes = 0
-    failures = 0
-    fixes = 0
-    for status, label, detail in results:
-        console.print(f"  {status} {label}")
-        if detail:
-            console.print(f"      [dim]{detail}[/dim]")
-        if status == PASS:
-            passes += 1
-        elif status == FAIL:
-            failures += 1
-        elif status == FIXED:
-            fixes += 1
-
-    summary = f"  [bold]{passes} passed[/bold], [bold]{failures} failed[/bold]"
-    if fixes:
-        summary += f", [bold yellow]{fixes} fixed[/bold yellow]"
-    console.print(f"\n{summary}\n")
-    logger.info("Audit finished passed=%d failed=%d fixed=%d", passes, failures, fixes)
-
-    if failures > 0:
-        raise SystemExit(1)
+    return AuditReport(
+        [finding for check in checks for finding in _guarded(check)]
+    ).report(console, quiet=options.quiet)
 
 
-def _guarded(check: Callable[[], _Findings]) -> _Findings:
+def _guarded(check: Callable[[], Findings]) -> Findings:
     """Run one check; a file it cannot read becomes a FAIL naming the file.
 
     Without this one unreadable file would abort the audit and discard every
@@ -286,7 +273,7 @@ def _check_markdownlint(info: ProjectInfo, *, fix: bool) -> list[tuple[str, str,
             results.append((FIXED, f"{filename} created", ""))
         else:
             results.append(
-                (FAIL, f"{filename} exists", "Missing — run punt audit --fix")
+                (FAIL, f"{filename} exists", "Missing — run punt repo audit --fix")
             )
 
     return results
@@ -371,7 +358,7 @@ def _check_py_typed(info: ProjectInfo, *, fix: bool) -> list[tuple[str, str, str
         (
             FAIL,
             "py.typed marker exists",
-            f"Missing {_relpath(py_typed, info.root)} — run punt audit --fix",
+            f"Missing {_relpath(py_typed, info.root)} — run punt repo audit --fix",
         )
     ]
 
@@ -392,7 +379,7 @@ def _check_changelog(info: ProjectInfo, *, fix: bool) -> list[tuple[str, str, st
         )
         return [(FIXED, "CHANGELOG.md created", "")]
 
-    return [(FAIL, "CHANGELOG.md exists", "Missing — run punt audit --fix")]
+    return [(FAIL, "CHANGELOG.md exists", "Missing — run punt repo audit --fix")]
 
 
 def _check_beads(info: ProjectInfo) -> list[tuple[str, str, str]]:
@@ -412,7 +399,7 @@ def _check_claude_md(info: ProjectInfo) -> list[tuple[str, str, str]]:
         (
             PASS if info.has_claude_md else FAIL,
             "CLAUDE.md exists",
-            "" if info.has_claude_md else "Missing CLAUDE.md — run punt init",
+            "" if info.has_claude_md else "Missing CLAUDE.md — run punt repo init",
         )
     ]
 

@@ -32,11 +32,11 @@ Also read the project's `CLAUDE.md` if it exists — it may document intentional
 Run the mechanical checks first:
 
 ```bash
-punt audit <project-path>
+punt repo audit <project-path>
 ```
 
 Report the output to the user. The deterministic layer catches missing files, config
-gaps, and formatting issues. This command focuses on what `punt audit` cannot: contextual
+gaps, and formatting issues. This command focuses on what `punt repo audit` cannot: contextual
 reconciliation.
 
 ### 2. Load Standards
@@ -152,6 +152,6 @@ After all checks, print a structured summary:
 4. **One project at a time.** Even if you can see sibling directories, only reconcile
    the specified project path.
 
-5. **Deterministic checks belong in `punt audit`.** If you find yourself wanting to add
+5. **Deterministic checks belong in `punt repo audit`.** If you find yourself wanting to add
    a mechanical check (file exists? config key present?), note it as a potential
-   `punt audit` enhancement instead.
+   `punt repo audit` enhancement instead.

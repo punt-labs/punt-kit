@@ -1,4 +1,4 @@
-"""Project type detection for punt init / punt audit."""
+"""Project type detection for punt repo init / punt repo audit."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def plugin_manifests(root: Path) -> list[Path]:
     Normally at most one exists. More than one means a half-finished move to
     the ``plugin/`` layout left a stale manifest behind, and callers that only
     read the first would silently ignore the other — so the full list is
-    returned and ``punt audit`` reports the ambiguity.
+    returned and ``punt repo audit`` reports the ambiguity.
     """
     return [
         candidate

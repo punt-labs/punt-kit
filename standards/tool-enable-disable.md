@@ -118,7 +118,7 @@ where its marker is absent is a graceful no-op, not a trigger to self-enable.
 - **Canonical import string.** The line is exactly `@.punt-labs/<tool>/CLAUDE.md`,
   repo-relative, with `<tool>` the CLI binary name. Forward slashes; no `./` prefix; no trailing slash; no leading or trailing
   whitespace; one physical line, no embedded newline. This exact string is what
-  `enable` writes, what `disable` matches, and what `punt audit` greps — all 15
+  `enable` writes, what `disable` matches, and what `punt repo audit` greps — all 15
   CLIs must produce byte-identical lines.
 - **One bare line, appended at end of file.** No heading, no marker, no comment.
 - **Ensured separation.** If the host file does not end in a newline, add one
@@ -320,7 +320,7 @@ shape it takes —
 a settings dotfile, a config-bearing root directory, or a bare presence marker
 ([punt's compatibility reference](../docs/repo-layout.md#compatibility-inventory)
 classifies legacy shapes): one file, inside the
-tool's directory, that both hook gates and `punt audit` read.
+tool's directory, that both hook gates and `punt repo audit` read.
 
 ## 2.8 Hooks and config
 
@@ -411,7 +411,7 @@ the `punt` CLI: `init`, `audit`, `reconcile`, and so on) — and adds
 `@.punt-labs/punt/CLAUDE.md` to the repo `CLAUDE.md`. It is the same kind of
 static user-guide doc every tool ships (2.5), not a per-repo rendered file.
 Its permission set is `Skill(punt:*)` plus `ask` carve-outs only; `Bash(punt:*)` is
-the permissions.md § 3 baseline, because `punt init` scaffolds that file and
+the permissions.md § 3 baseline, because `punt repo init` scaffolds that file and
 must run unprompted from the first scaffold.
 
 `punt`'s deposited guide is **not** a home for repo-specific dev-process
@@ -419,7 +419,7 @@ content — quality gates, beads, standards references, available tooling. That
 is not a tool user guide; where such content lives is out of scope for this
 standard.
 
-## 2.11 What `punt audit` checks
+## 2.11 What `punt repo audit` checks
 
 The checks key on the `enabled` marker (2.7), not on directory presence, so a
 dormant tool is not flagged.
@@ -460,7 +460,7 @@ Forward integration, no compatibility shim
 - No tool renders managed sections into a user-owned `CLAUDE.md`, and `punt`
   has no target or section registry that does. `punt`'s deposited file is
   punt's user guide (2.10), not a home for that content. Makefile marker
-  sections (`punt seed makefile`) are a separate mechanism and **out of
+  sections (`punt repo seed makefile`) are a separate mechanism and **out of
   scope** here — this rule is CLAUDE.md-only.
 - A `punt:begin` / `punt:end` marker section found in a repo `CLAUDE.md` is
   content to delete, leaving the user's prose plus bare import lines.

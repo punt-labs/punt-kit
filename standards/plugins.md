@@ -85,7 +85,7 @@ commit → push. See DES-007 in DESIGN.md for the full rationale.
 
 ### Audit enforcement
 
-`punt audit` checks that every prod command (`*.md` excluding `*-dev.md`) has a
+`punt repo audit` checks that every prod command (`*.md` excluding `*-dev.md`) has a
 corresponding `-dev` variant.
 
 ---

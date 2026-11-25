@@ -1,172 +1,81 @@
-"""punt pii — scan repository for personally identifiable information."""
+"""punt repo scan-pii — scan repository for personally identifiable information."""
 
 from __future__ import annotations
 
-import fnmatch
 import re
-import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from rich.console import Console
-from rich.markup import escape
 
-from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.text_file import TextFile
+from punt_kit.pii_matcher import Finding, PiiMatcher, ScanSource
+from punt_kit.pii_matcher import PiiConfig as PiiConfig
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 console = Console()
 
-# One pass finds emails and ``.local`` hostnames. A JSON escape (``\\n``,
-# ``\\u003c``) is consumed whole, so no address starts at its letter; a domain
-# checks for another address once before splitting a hyphen-glued local part.
-# Runs that hold no address are consumed whole, so the scan stays linear.
-_ADDRESS_RE = re.compile(
-    r'\\(?:u[0-9a-fA-F]{4}|["\\/bfnrt])'
-    r"|(?P<address>[\w%+][\w.%+-]*+@(?:"
-    r"(?=[\w.%+-]*+@[\w-]++(?:\.[\w-]++)*\.[a-zA-Z]{2,}\b)"
-    r"[\w-]++(?:\.[\w-]++)*?\.[a-zA-Z]{2,}\b(?=-)"
-    r"|[\w-]++(?:\.[\w-]++)*\.[a-zA-Z]{2,}\b))"
-    r"|[.-]|[\w.%+-]++",
-)
 
-_HOME_PATH_RE = re.compile(
-    r"(?:/Users/|/home/)[\w.-]+/",
-)
+@dataclass(frozen=True, slots=True)
+class ConfigSource:
+    """Locate and decode the PII settings for one checkout."""
 
-# Emails that are never flagged.
-_BUILTIN_ALLOW_EMAILS: set[str] = {
-    "noreply@github.com",
-    "noreply@anthropic.com",
-    # SSH URL prefixes (not actual emails)
-    "git@github.com",
-    "git@gitlab.com",
-    "git@bitbucket.org",
-}
+    root: Path
+    index_blob: Callable[[str], bytes | None] | None = None
 
-_BUILTIN_ALLOW_EMAIL_SUFFIXES: tuple[str, ...] = (
-    "@users.noreply.github.com",
-    "@example.com",
-    "@example.org",
-    "@example.net",
-)
+    def load(self, config_path: str | None) -> PiiConfig:
+        """Load the PII config from the first applicable source.
 
-# Path prefixes that are never flagged (CI runners).
-_BUILTIN_ALLOW_PATHS: tuple[str, ...] = (
-    "/home/runner/",
-    "/Users/runner/",
-)
+        An explicit ``config_path`` must exist and wins over other settings.
+        Otherwise ``[tool.punt.pii]`` in ``pyproject.toml`` is used,
+        then ``.punt-pii.toml``, then the defaults.
 
+        Raises:
+            ReleaseError: A config file cannot be read or is not valid TOML.
+        """
+        if config_path is not None:
+            return PiiConfig.from_dict(TextFile(Path(config_path)).toml())
 
-@dataclass(frozen=True)
-class PiiConfig:
-    """User-configurable PII scanning settings."""
+        if (data := self._read_default("pyproject.toml")) is not None:
+            pii_section = self._drill(data, "tool", "punt", "pii")
+            if pii_section is not None:
+                return PiiConfig.from_dict(pii_section)
 
-    allow_emails: list[str] = field(default_factory=list[str])
-    allow_patterns: list[str] = field(default_factory=list[str])
-    deny: list[str] = field(default_factory=list[str])
-    ignore_files: list[str] = field(default_factory=list[str])
+        if (data := self._read_default(".punt-pii.toml")) is not None:
+            return PiiConfig.from_dict(data)
 
+        return PiiConfig()
 
-@dataclass(frozen=True)
-class Finding:
-    """A single PII match in a file."""
+    def _read_default(self, name: str) -> dict[str, object] | None:
+        if self.index_blob is None:
+            path = self.root / name
+            return TextFile(path).toml() if path.exists() else None
+        blob = self.index_blob(name)
+        if blob is None:
+            return None
+        source = f"staged {name}"
+        return TextFile.parse_toml(
+            TextFile.from_bytes(blob, source=source), source=source
+        )
 
-    file: str
-    line: int
-    category: str  # "email", "path", "hostname", "deny"
-    match: str
+    @staticmethod
+    def _drill(data: dict[str, object], *keys: str) -> dict[str, object] | None:
+        """Walk nested dicts by key sequence, returning None if any key is missing."""
+        current = data
+        for key in keys:
+            child = current.get(key)
+            if not isinstance(child, dict):
+                return None
+            current = cast("dict[str, object]", child)
+        return current
 
 
 def load_config(root: Path, config_path: str | None = None) -> PiiConfig:
-    """Load the PII config for the repository at ``root``.
-
-    An explicit ``config_path`` wins; a missing one warns and yields the
-    defaults. Otherwise ``[tool.punt.pii]`` in ``pyproject.toml`` is used,
-    then ``.punt-pii.toml``, then the defaults.
-
-    Raises:
-        ReleaseError: A config file cannot be read or is not valid TOML.
-    """
-    if config_path is not None:
-        p = Path(config_path)
-        if p.exists():
-            return _parse_toml_config(p)
-        console.print(f"[yellow]Warning:[/yellow] config not found: {config_path}")
-        return PiiConfig()
-
-    pyproject = root / "pyproject.toml"
-    if pyproject.exists():
-        data = TextFile(pyproject).toml()
-        pii_section = _drill(data, "tool", "punt", "pii")
-        if pii_section is not None:
-            return _config_from_dict(pii_section)
-
-    standalone = root / ".punt-pii.toml"
-    if standalone.exists():
-        return _parse_toml_config(standalone)
-
-    return PiiConfig()
-
-
-def _parse_toml_config(path: Path) -> PiiConfig:
-    """Parse a standalone .punt-pii.toml file."""
-    data = TextFile(path).toml()
-    return _config_from_dict(data)
-
-
-def _config_from_dict(data: dict[str, object]) -> PiiConfig:
-    """Build PiiConfig from a dict (either pyproject section or standalone)."""
-    return PiiConfig(
-        allow_emails=_str_list(data.get("allow_emails")),
-        allow_patterns=_str_list(data.get("allow_patterns")),
-        deny=_str_list(data.get("deny")),
-        ignore_files=_str_list(data.get("ignore_files")),
-    )
-
-
-def _str_list(val: object) -> list[str]:
-    """Coerce a value to a list of strings."""
-    if isinstance(val, list):
-        return [str(x) for x in cast("list[object]", val)]
-    return []
-
-
-def _drill(data: dict[str, object], *keys: str) -> dict[str, object] | None:
-    """Walk nested dicts by key sequence, returning None if any key is missing."""
-    current = data
-    for key in keys:
-        child = current.get(key)
-        if not isinstance(child, dict):
-            return None
-        current = cast("dict[str, object]", child)
-    return current
-
-
-def get_files(root: Path, *, staged: bool) -> list[str]:
-    """List the files to scan, relative to ``root``; ``[]`` if git fails.
-
-    Args:
-        staged: Scan only staged, non-deleted files instead of all tracked ones.
-    """
-    if staged:
-        cmd = ["git", "diff", "--cached", "--name-only", "--diff-filter=d"]
-    else:
-        cmd = ["git", "ls-files"]
-
-    try:
-        result = subprocess.run(
-            cmd,
-            cwd=str(root),
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            return []
-        return [f for f in result.stdout.strip().splitlines() if f]
-    except (subprocess.TimeoutExpired, OSError):
-        return []
+    """Load the PII settings, preferring an explicit config file."""
+    return ConfigSource(root).load(config_path)
 
 
 def is_binary(path: Path) -> bool:
@@ -199,10 +108,15 @@ def scan_file(
     except (OSError, UnicodeError):
         return []
 
-    findings: list[Finding] = []
-    allow_email_set = _BUILTIN_ALLOW_EMAILS | set(config.allow_emails)
+    return PiiMatcher(config, compile_allow_patterns(config.allow_patterns)).scan(
+        ScanSource(rel_path, content)
+    )
+
+
+def compile_allow_patterns(patterns: list[str]) -> list[re.Pattern[str]]:
+    """Compile allow patterns, warning about any invalid patterns."""
     allow_regexes: list[re.Pattern[str]] = []
-    for p in config.allow_patterns:
+    for p in patterns:
         try:
             allow_regexes.append(re.compile(p))
         except re.error as exc:
@@ -210,112 +124,4 @@ def scan_file(
                 f"[yellow]Warning:[/yellow] invalid allow_pattern skipped:"
                 f" {p!r} ({exc})"
             )
-
-    for line_num, line in enumerate(content.splitlines(), start=1):
-        for m in _ADDRESS_RE.finditer(line):
-            address = m["address"]
-            if address is None or _suppressed(address, allow_regexes):
-                continue
-            if address.endswith(".local"):
-                findings.append(Finding(rel_path, line_num, "hostname", address))
-            elif address not in allow_email_set and not address.endswith(
-                _BUILTIN_ALLOW_EMAIL_SUFFIXES
-            ):
-                findings.append(Finding(rel_path, line_num, "email", address))
-
-        for m in _HOME_PATH_RE.finditer(line):
-            path_match = m.group()
-            if any(path_match.startswith(ap) for ap in _BUILTIN_ALLOW_PATHS):
-                continue
-            if _suppressed(path_match, allow_regexes):
-                continue
-            findings.append(Finding(rel_path, line_num, "path", path_match))
-
-        for pattern in config.deny:
-            if pattern in line:
-                if _suppressed(pattern, allow_regexes):
-                    continue
-                findings.append(Finding(rel_path, line_num, "deny", pattern))
-
-    return findings
-
-
-def _suppressed(text: str, allow_regexes: list[re.Pattern[str]]) -> bool:
-    """Check if a match is suppressed by an allow_patterns regex."""
-    return any(r.search(text) for r in allow_regexes)
-
-
-def run_pii(
-    path: str,
-    *,
-    staged: bool = False,
-    config: str | None = None,
-) -> None:
-    """Scan a repository for personally identifiable information.
-
-    Args:
-        staged: Scan only staged files, as a pre-commit hook does.
-        config: Explicit config file path, overriding the default lookup.
-
-    Raises:
-        SystemExit: With status 1 when ``path`` is not a directory, the config
-            cannot be read, or any finding is reported.
-    """
-    root = Path(path).resolve()
-    if not root.is_dir():
-        console.print(f"[red]Error:[/red] {root} is not a directory")
-        raise SystemExit(1)
-
-    try:
-        cfg = load_config(root, config)
-    except ReleaseError as exc:
-        console.print(f"[red]Error:[/red] {escape(str(exc))}")
-        raise SystemExit(1) from exc
-    mode = "--staged" if staged else "all tracked"
-    console.print(f"\n[bold]punt pii[/bold] — {root.name} ({mode})")
-
-    files = get_files(root, staged=staged)
-    if not files:
-        console.print("  No files to scan.\n")
-        return
-
-    if cfg.ignore_files:
-        files = [
-            f for f in files if not any(fnmatch.fnmatch(f, g) for g in cfg.ignore_files)
-        ]
-
-    all_findings: list[Finding] = []
-    for rel_path in files:
-        all_findings.extend(scan_file(rel_path, root, cfg))
-
-    if not all_findings:
-        console.print(
-            f"  [green]✓[/green] Clean — {len(files)} file(s) scanned, no PII found.\n"
-        )
-        return
-
-    by_file: dict[str, list[Finding]] = {}
-    for f in all_findings:
-        by_file.setdefault(f.file, []).append(f)
-
-    for file_path, file_findings in sorted(by_file.items()):
-        console.print(f"\n  [bold]{file_path}[/bold]")
-        for f in file_findings:
-            console.print(f"    [red]✗[/red] line {f.line}: \\[{f.category}] {f.match}")
-
-    console.print(
-        f"\n  [red]{len(all_findings)} finding(s)[/red]"
-        f" in {len(by_file)} file(s)"
-        f" ({len(files)} scanned)\n"
-    )
-
-    if staged:
-        console.print("  [dim]Commit blocked. Fix findings and re-stage.[/dim]\n")
-    else:
-        console.print(
-            "  [dim]Tip: Add as pre-commit hook:[/dim]\n"
-            "  [dim]  echo 'punt pii --staged || exit 1'"
-            " >> .git/hooks/pre-commit[/dim]\n"
-        )
-
-    raise SystemExit(1)
+    return allow_regexes

@@ -9,7 +9,7 @@ tool's current enable command implements a migration.
 
 The canonical patterns are in
 [PY-PLD-4](../lang-rules/python/python-layout.md#py-pld-4-test-the-ignore-boundary-with-git).
-`punt audit` uses Git probes for verdicts; textual block comparison only
+`punt repo audit` uses Git probes for verdicts; textual block comparison only
 explains failures. The probe sets cover every present tool and every live
 compatibility path independently, even when the corresponding tool is absent.
 
@@ -169,8 +169,8 @@ Ethos's docs/audit-seal.md invariant block, not a pinned section number.
 
 ## Audit probe and grading contract
 
-The root ignore block is tooling-owned: punt init writes it, workspace rollout
-propagates it, and punt audit verifies behavior. Tools may add narrower
+The root ignore block is tooling-owned: punt repo init writes it, workspace rollout
+propagates it, and punt repo audit verifies behavior. Tools may add narrower
 local-convention rules in their own committed ignore files, but must not edit
 the canonical block. The local/** pattern is defense in depth; local segment
 matching already excludes its descendants. Deny-all re-inclusions precede the
@@ -197,7 +197,7 @@ path; a tool-root gitlink always warns and its hidden contents are not probed.
 The bare-file scan uses the worktree, not only the index, including ignored
 and untracked strays. Tool-shipped ignore files must themselves be tracked.
 
-Keep best-effort secret scanning and punt pii separate from layout verdicts:
+Keep best-effort secret scanning and punt repo scan-pii separate from layout verdicts:
 neither is proof of absence or a substitute for writer-side protection. PII
 scanning targets tracked .punt-labs content for absolute home paths, email
 addresses and .local hostnames. Declared identity fields and explicitly

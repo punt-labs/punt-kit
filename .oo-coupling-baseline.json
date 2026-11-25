@@ -8,7 +8,7 @@
   },
   "src/punt_kit/__main__.py": {
     "efferent_coupling": 1.0,
-    "public_names": 12.0,
+    "public_names": 0.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
@@ -48,6 +48,13 @@
     "max_lcom": 0.4,
     "avg_lcom": 0.4
   },
+  "src/punt_kit/audit_report.py": {
+    "efferent_coupling": 2.0,
+    "public_names": 7.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_kit/audit_verdict.py": {
     "efferent_coupling": 0.0,
     "public_names": 4.0,
@@ -75,6 +82,48 @@
     "circular_imports": 0.0,
     "max_lcom": 0.833,
     "avg_lcom": 0.833
+  },
+  "src/punt_kit/cli.py": {
+    "efferent_coupling": 7.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.356,
+    "avg_lcom": 0.356
+  },
+  "src/punt_kit/cli_group.py": {
+    "efferent_coupling": 3.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.833,
+    "avg_lcom": 0.833
+  },
+  "src/punt_kit/cli_options.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 3.0,
+    "circular_imports": 0.0,
+    "max_lcom": 1.0,
+    "avg_lcom": 0.833
+  },
+  "src/punt_kit/cli_output.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 5.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_kit/cli_release.py": {
+    "efferent_coupling": 2.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.333,
+    "avg_lcom": 0.333
+  },
+  "src/punt_kit/cli_repo.py": {
+    "efferent_coupling": 2.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.238,
+    "avg_lcom": 0.238
   },
   "src/punt_kit/command_span.py": {
     "efferent_coupling": 1.0,
@@ -104,6 +153,13 @@
     "max_lcom": 0.731,
     "avg_lcom": 0.731
   },
+  "src/punt_kit/errors.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 1.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
   "src/punt_kit/git_checkout.py": {
     "efferent_coupling": 1.0,
     "public_names": 1.0,
@@ -121,6 +177,20 @@
   "src/punt_kit/init_beads.py": {
     "efferent_coupling": 4.0,
     "public_names": 3.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.0,
+    "avg_lcom": 0.0
+  },
+  "src/punt_kit/install.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 2.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.952,
+    "avg_lcom": 0.952
+  },
+  "src/punt_kit/install_git.py": {
+    "efferent_coupling": 0.0,
+    "public_names": 2.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
@@ -589,10 +659,24 @@
   },
   "src/punt_kit/pii.py": {
     "efferent_coupling": 2.0,
-    "public_names": 8.0,
+    "public_names": 6.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
     "avg_lcom": 0.0
+  },
+  "src/punt_kit/pii_checkout.py": {
+    "efferent_coupling": 3.0,
+    "public_names": 3.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.724,
+    "avg_lcom": 0.724
+  },
+  "src/punt_kit/pii_matcher.py": {
+    "efferent_coupling": 1.0,
+    "public_names": 4.0,
+    "circular_imports": 0.0,
+    "max_lcom": 0.7,
+    "avg_lcom": 0.7
   },
   "src/punt_kit/release.py": {
     "efferent_coupling": 31.0,
@@ -617,13 +701,6 @@
   },
   "src/punt_kit/status_view.py": {
     "efferent_coupling": 0.0,
-    "public_names": 1.0,
-    "circular_imports": 0.0,
-    "max_lcom": 0.0,
-    "avg_lcom": 0.0
-  },
-  "src/punt_kit/telemetry.py": {
-    "efferent_coupling": 2.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,

@@ -41,10 +41,10 @@ even when it is Markdown or YAML, because Claude Code executes it. A change
 there is never docs-only and is re-certified after every edit.
 
 A script under `scripts/` is behavior. `release-plugin.sh` and
-`restore-dev-plugin.sh` are run by `punt release` phases 4 and 9;
+`restore-dev-plugin.sh` are run by `punt release run` phases 4 and 9;
 `audit-all.sh` is run by hand (`bash scripts/audit-all.sh [--fix]`) and
 walks `../*/`, the sibling repos. Expected output is written first. Because
-`punt release` performs irreversible steps, a change to either release
+`punt release run` performs irreversible steps, a change to either release
 script is certified by invoking it directly against a scratch checkout
 under `.tmp/`; a change to `audit-all.sh` is certified by running it from
 the repo root without `--fix`, which only reads.
@@ -154,7 +154,7 @@ implementation mission, and the operator ratifies the design:
   "Ethos & Delegation").
 - A change to the plugin's layout: what `plugin/` contains, how a command
   resolves `${CLAUDE_PLUGIN_ROOT}`, or the dev/prod command pairing.
-- A change to the `punt release` phase sequence or its `--resume-from`
+- A change to the `punt release run` phase sequence or its `--resume-from`
   contract (also a formal class, below).
 
 ## Formal classes
@@ -170,7 +170,7 @@ or code it describes.
    `standards/pr-review-model.tex` and
    `standards/pr-review-model-bugbot.tex`; the check commands and cardinality
    bounds are in each file's header.
-2. **The `punt release` phase sequence.** `src/punt_kit/release.py`, phases
+2. **The `punt release run` phase sequence.** `src/punt_kit/release.py`, phases
    1 through 11, and `--resume-from`. It is a formal class because it is a
    sequential state machine with irreversible transitions (tag push, PyPI
    publish, sibling-repo PRs) and re-entry at any phase, so a wrong
@@ -186,8 +186,8 @@ The sort is the standard's. What each rank means here:
    package; a release-pipeline credential (`release.yml` must stay on OIDC
    trusted publishing, no `PYPI_TOKEN`); a stale or wrong `install.sh` SHA
    pin that sibling repos and the org profile consume.
-2. **Broken user journeys.** A `punt release` phase that fails or leaves a
-   sibling repo on a propagation branch; `punt init`, `punt audit`, or
+2. **Broken user journeys.** A `punt release run` phase that fails or leaves a
+   sibling repo on a propagation branch; `punt repo init`, `punt repo audit`, or
    `punt reconcile` failing against a sibling repo; a plugin command that
    fails after `/plugin update` from the marketplace; a standard that
    contradicts what the fleet runs (see the fleet reality check in

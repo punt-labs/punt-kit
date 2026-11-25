@@ -175,7 +175,7 @@ scripts:
   every `ssh` command must use `-n`. Without this, `curl | sh` execution
   silently stops when a child process consumes pipe bytes (DES-006).
 - **VERSION pin (mandatory)** — every `install.sh` MUST declare `VERSION="X.Y.Z"`
-  near the top and use `uv tool install --force "$PACKAGE==$VERSION"`. The `punt release`
+  near the top and use `uv tool install --force "$PACKAGE==$VERSION"`. The `punt release run`
   CLI bumps this pin automatically during Phase 2. Without a VERSION pin, install is
   non-deterministic: `uv tool install` fetches latest from PyPI, which may not match the
   SHA pinned in `install-all.sh` or the project README. This has caused real version
@@ -196,10 +196,10 @@ updates follow the same sequence.
 
 | Location | What's pinned | Updated by |
 |----------|--------------|------------|
-| Project README | `raw.githubusercontent.com/<org>/<repo>/<SHA>/install.sh` | `punt release` Phase 9 (post-release PR) |
-| `install-all.sh` | `$GH/<project>/<SHA>/install.sh` for each child project | `punt release` Phase 10a (sibling PR) |
-| Org profile README | `raw.githubusercontent.com/punt-labs/punt-kit/<SHA>/install-all.sh` | `punt release` Phase 10c (sibling PR, punt-kit only) |
-| `public-website` `projects.json` | `installCommand` field per project | `punt release` Phase 10d (sibling PR) |
+| Project README | `raw.githubusercontent.com/<org>/<repo>/<SHA>/install.sh` | `punt release run` Phase 9 (post-release PR) |
+| `install-all.sh` | `$GH/<project>/<SHA>/install.sh` for each child project | `punt release run` Phase 10a (sibling PR) |
+| Org profile README | `raw.githubusercontent.com/punt-labs/punt-kit/<SHA>/install-all.sh` | `punt release run` Phase 10c (sibling PR, punt-kit only) |
+| `public-website` `projects.json` | `installCommand` field per project | `punt release run` Phase 10d (sibling PR) |
 
 **Manual fallback** (when automation fails or for ad-hoc changes):
 
@@ -211,7 +211,7 @@ updates follow the same sequence.
 
 ### README install SHA auto-update (Phase 9)
 
-During `punt release`, the project README's `install.sh` URL is automatically updated
+During `punt release run`, the project README's `install.sh` URL is automatically updated
 in the post-release phase:
 
 1. Phase 4 merges the release PR to main (via squash-merge)
@@ -226,7 +226,7 @@ version bump. Phase 9 runs after the tag exists.
 
 ### Cross-repo propagation (Phase 10)
 
-`punt release` Phase 10 handles all cross-repo SHA and version propagation
+`punt release run` Phase 10 handles all cross-repo SHA and version propagation
 locally. All sibling repos must be checked out as siblings in the same parent
 directory (`../punt-kit`, `../claude-plugins`, `../.github`,
 `../public-website`). Each propagation step creates a branch, commits the
