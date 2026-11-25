@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-25
+
 ### Fixed
 
 - Release verification failures, including timeouts, name the resume phase
