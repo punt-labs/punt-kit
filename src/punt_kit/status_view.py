@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Self
 
@@ -20,9 +21,9 @@ class StatusView:
         self._status = status
         return self
 
-    def data(self) -> dict[str, object]:
-        """Return the status fields in the CLI's JSON format."""
-        return asdict(self._status)
+    def json(self) -> str:
+        """Serialize the status fields in the CLI's JSON format."""
+        return json.dumps(asdict(self._status), default=str)
 
     def text(self) -> str:
         """Return the human-readable status lines in display order."""

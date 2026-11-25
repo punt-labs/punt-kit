@@ -226,7 +226,7 @@ def status(
         _die(str(exc))
     view = StatusView(info)
     if _json_output:
-        typer.echo(json.dumps(view.data(), default=str), color=True)
+        typer.echo(view.json(), color=True)
     elif not _quiet:
         typer.echo(view.text(), color=True)
     if info.beads_skipped and not _quiet:
