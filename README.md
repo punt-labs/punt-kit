@@ -118,6 +118,8 @@ not merely accepted. In JSON mode, stdout contains one value; progress and
 diagnostics go to stderr. Exit 1 indicates an operation failure, 2 indicates
 invalid CLI syntax, and 130 indicates an interruption. JSON failures contain
 an `error` string and, where applicable, partial results.
+`punt repo init --json` does not prompt for a language; use `--language`
+to override auto-detection.
 
 | Command | What exit zero proves | JSON result |
 |---------|-----------------------|-------------|
@@ -181,6 +183,8 @@ Running `punt repo init` again updates the files it manages without overwriting 
 ### PII Scan Allow and Deny Lists
 
 `punt repo scan-pii` reads optional lists from a `[tool.punt.pii]` table in `pyproject.toml`: `allow_emails` (addresses that are not reported), `allow_patterns` (regular expressions for matches that are not reported), and `deny` (extra strings that are always reported). `--config <file>` reads the table from another file.
+
+With `--staged`, the default rules are read from the Git index, just like the files being scanned. An explicit `--config` still reads the supplied file from disk.
 
 ### Release Options
 
