@@ -2,60 +2,21 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
 
 from punt_kit import __version__
 
 
 @dataclass(frozen=True)
 class StatusInfo:
-    """Record a project's detected configuration and issue counts."""
+    """Record a project's detected configuration."""
 
     punt_kit_version: str
     language: str | None
     project_type: str | None
     is_plugin: bool
     is_mcp_server: bool
-    has_beads: bool
-    beads_open: int
-    beads_in_progress: int
-    beads_skipped: int = 0
-
-
-def _count_beads(root: Path) -> tuple[int, int, int]:
-    """Count open, in-progress, and skipped rows in the beads JSONL file."""
-    jsonl = root / ".beads" / "issues.jsonl"
-    if not jsonl.exists():
-        return (0, 0, 0)
-    open_count = 0
-    in_progress = 0
-    skipped = 0
-    try:
-        with jsonl.open("r", encoding="utf-8") as f:
-            for raw_line in f:
-                line = raw_line.strip()
-                if not line:
-                    continue
-                try:
-                    issue = json.loads(line)
-                except json.JSONDecodeError:
-                    skipped += 1
-                    continue
-                if not isinstance(issue, dict):
-                    skipped += 1
-                    continue
-                rec = cast("dict[str, object]", issue)
-                st = rec.get("status", "")
-                if st == "open":
-                    open_count += 1
-                elif st == "in_progress":
-                    in_progress += 1
-    except (OSError, UnicodeDecodeError):
-        return (0, 0, 0)
-    return (open_count, in_progress, skipped)
 
 
 def run_status(path: str = ".") -> StatusInfo:
@@ -66,12 +27,7 @@ def run_status(path: str = ".") -> StatusInfo:
     """
     from punt_kit.detect import detect
 
-    root = Path(path).resolve()
-    info = detect(root)
-    has_beads = (root / ".beads").is_dir()
-    beads_open, beads_in_progress, beads_skipped = (
-        _count_beads(root) if has_beads else (0, 0, 0)
-    )
+    info = detect(Path(path).resolve())
 
     return StatusInfo(
         punt_kit_version=__version__,
@@ -79,8 +35,4 @@ def run_status(path: str = ".") -> StatusInfo:
         project_type=info.project_type,
         is_plugin=info.is_plugin,
         is_mcp_server=info.is_mcp_server,
-        has_beads=has_beads,
-        beads_open=beads_open,
-        beads_in_progress=beads_in_progress,
-        beads_skipped=beads_skipped,
     )

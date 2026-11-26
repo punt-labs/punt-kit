@@ -38,6 +38,22 @@ def test_init_reads_every_plugin_manifest_before_writing(
     assert not (tmp_path / ".claude").exists()
 
 
+def test_init_never_runs_bd_or_creates_beads(tmp_path: Path) -> None:
+    """Work is tracked in Linear: init neither runs ``bd`` nor makes ``.beads/``."""
+    project = tmp_path / "project"
+    project.mkdir()
+    python_project(project)
+    bin_dir = fake_bd(tmp_path / "bin", '#!/bin/sh\ntouch "$0.ran"\nmkdir .beads\n')
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
+        changed = run_init(str(project))
+
+    assert not (tmp_path / "bin" / "bd.ran").exists()
+    assert not (project / ".beads").exists()
+    assert ".beads/" not in changed
+
+
 def test_init_does_not_report_a_bom_workflow_identical_to_the_template(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

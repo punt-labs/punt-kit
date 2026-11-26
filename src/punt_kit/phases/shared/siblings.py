@@ -85,7 +85,7 @@ class SiblingRepo:
     def validate(self) -> None:
         """Require a clean sibling checkout on main and fast-forward it.
 
-        Ignore untracked files and tracked changes confined to .beads.
+        Ignore untracked files.
 
         Raises:
             ReleaseError: The checkout is not ready or a Git command fails.
@@ -117,8 +117,7 @@ class SiblingRepo:
                 f"Sibling {self._name} is on branch '{branch}', expected main"
             )
 
-        # Only block on modified/staged files — untracked files and .beads/
-        # are harmless.
+        # Only block on modified/staged files — untracked files are harmless.
         status_result = self._ops.run(
             ["git", "status", "--porcelain"], cwd=str(self._path), check=False
         )
@@ -131,9 +130,6 @@ class SiblingRepo:
         dirty_lines: list[str] = []
         for ln in status_result.stdout.splitlines():
             if ln.startswith("?? "):
-                continue
-            file_path = ln[3:] if len(ln) > 3 else ""
-            if file_path == ".beads" or file_path.startswith(".beads/"):
                 continue
             dirty_lines.append(ln)
         dirty = "\n".join(dirty_lines)
@@ -157,8 +153,7 @@ class SiblingRepo:
     ) -> None:
         """Restore propagation-owned changes without touching unrelated edits.
 
-        Leave the checkout alone if any other tracked path is dirty, except
-        for .beads state. An unreadable status produces a notice, not a reset.
+        Leave the checkout alone if any other tracked path is dirty. An unreadable status produces a notice, not a reset.
 
         Args:
             owned: Override owned paths; an empty tuple or ``None`` uses the default.
@@ -185,13 +180,11 @@ class SiblingRepo:
 
         dirty_owned: list[str] = []
         for ln in status.stdout.splitlines():
-            # Same filter validate() applies: untracked and .beads noise do
-            # not block propagation and are not ours to reset.
+            # Same filter validate() applies: untracked files do not block
+            # propagation and are not ours to reset.
             if ln.startswith("?? "):
                 continue
             file_path = ln[3:] if len(ln) > 3 else ""
-            if file_path == ".beads" or file_path.startswith(".beads/"):
-                continue
             if file_path in owned:
                 dirty_owned.append(file_path)
                 continue

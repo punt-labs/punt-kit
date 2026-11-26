@@ -171,9 +171,8 @@ _GIT_LIKE = frozenset({"git", "gh"}) | _SHELLS
 class HookFiringCommand:
     """Classify an invocation by whether it may run a Git hook.
 
-    Every punt-labs repo installs beads hooks that call a networked Dolt
-    server, so a command that fires one needs ``GIT_HOOK``, not the 60s
-    metadata default. The argv is read as the runtime sees it, never guessed
+    A repo's own hooks (quality gates, audit seals) can run for minutes, so a
+    command that fires one needs ``GIT_HOOK``, not the 60s metadata default. The argv is read as the runtime sees it, never guessed
     from source. When it cannot be read with confidence the answer is
     ``True``: a wrong ``True`` lengthens a ceiling, a wrong ``False`` aborts a
     release. That covers every git, gh, shell or ``.sh`` script argv, and a

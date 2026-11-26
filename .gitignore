@@ -49,14 +49,6 @@
 .CLAUDE.md.punt-import.lock
 **/.create.lock
 
-# --- Beads runtime state ---
-.beads/bd.sock*
-.beads/beads.db*
-.beads/daemon-*
-.beads/daemon.log
-.beads/daemon-error
-.beads/.local_version
-
 # --- Scratch / temp ---
 .tmp/*
 !.tmp/.gitkeep
@@ -210,9 +202,6 @@ uv.toml
 
 # Per-repo CLAUDE.md lockfile
 .CLAUDE.md.lock
-
-# Beads-managed git hooks (installed locally, not shared)
-.beads/hooks/
 
 # Working notes, not part of the package
 resume.md

@@ -37,9 +37,4 @@ class StatusView:
             rows.append("Plugin:       yes")
         if info.is_mcp_server:
             rows.append("MCP server:   yes")
-        if info.has_beads:
-            rows.append(
-                f"Beads:        {info.beads_open} open, "
-                f"{info.beads_in_progress} in progress"
-            )
         return "\n".join(rows)

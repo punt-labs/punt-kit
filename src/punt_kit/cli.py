@@ -98,7 +98,7 @@ class PuntCli:
         ctx: typer.Context,
         path: ProjectPath = ".",
     ) -> None:
-        """Show detected project type, standards version, and beads state."""
+        """Show detected project type and standards version."""
         from punt_kit.status import run_status
 
         output = self._output.from_context(ctx)
@@ -109,11 +109,6 @@ class PuntCli:
             output.fail(str(exc))
         view = StatusView(info)
         output.emit_encoded(view.json(), view.text())
-        if info.beads_skipped and not output.quiet:
-            typer.echo(
-                f"Warning: skipped {info.beads_skipped} malformed bead line(s)",
-                err=True,
-            )
 
     def doctor(
         self,
