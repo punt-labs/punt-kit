@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 from functools import partial
+from itertools import filterfalse
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -457,11 +458,8 @@ def _check_plugin_release_scripts(info: ProjectInfo) -> list[tuple[str, str, str
     so failing one would be a false positive.
     """
     label = "Release/restore scripts exist"
-    missing = [
-        script
-        for script in ("scripts/release-plugin.sh", "scripts/restore-dev-plugin.sh")
-        if not (info.root / script).exists()
-    ]
+    scripts = ("scripts/release-plugin.sh", "scripts/restore-dev-plugin.sh")
+    missing = list(filterfalse(lambda s: (info.root / s).exists(), scripts))
     if not missing:
         return [(PASS, label, "")]
     if info.is_hybrid:

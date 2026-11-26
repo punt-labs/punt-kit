@@ -109,6 +109,8 @@ entry = [
 ]
 adapters = [
     "punt_kit.audit_github",
+    "punt_kit.audit_guide",
+    "punt_kit.audit_repo_config",
     "punt_kit.audit_report",
     "punt_kit.claude_markers",
     "punt_kit.claude_md",

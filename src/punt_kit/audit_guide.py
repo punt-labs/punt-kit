@@ -9,7 +9,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_kit.audit_verdict import FAIL, PASS
-from punt_kit.phases.shared.text_file import TextFile
+from punt_kit.claude_md import ClaudeMdImport
+from punt_kit.errors import ReleaseError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -37,11 +38,21 @@ class PuntGuideAudit:
         return self
 
     def findings(self) -> list[Finding]:
-        """Return the single guide finding: missing, not imported, or present."""
+        """Return the single guide finding: missing, not imported, or present.
+
+        Raises:
+            ReleaseError: ``CLAUDE.md`` exists but cannot be read.
+        """
         if not (self._root / GUIDE).exists():
             return [(FAIL, LABEL, f"Missing {GUIDE} — run punt enable")]
-        claude_md = self._root / "CLAUDE.md"
-        if not (claude_md.exists() and f"@{GUIDE}" in TextFile(claude_md).read()):
+        if not self._is_imported():
             detail = f"CLAUDE.md does not import @{GUIDE}"
             return [(FAIL, LABEL, f"{detail} — run punt enable")]
         return [(PASS, LABEL, GUIDE)]
+
+    def _is_imported(self) -> bool:
+        """Return whether ``CLAUDE.md`` imports the guide at top level."""
+        try:
+            return ClaudeMdImport(self._root / "CLAUDE.md", f"@{GUIDE}").is_registered()
+        except OSError as exc:
+            raise ReleaseError(f"Cannot read CLAUDE.md: {exc.strerror}") from exc
