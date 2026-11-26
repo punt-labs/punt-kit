@@ -184,11 +184,15 @@ with no changes, which get their own (typically short) table:
 ### Proposed replacement text
 
 One block per rewritten issue, so the operator approves the exact words, not
-only the title:
+only the title. Write `unchanged` for any field the rewrite leaves alone, so
+the operator can tell a proposed edit from existing text:
 
-#### <identifier> — <new title>
+#### <identifier> — <new title, or `title unchanged`>
 
-> <the full replacement description, verbatim>
+- Priority: <new priority, or `unchanged`>
+- Description:
+
+> <the full replacement description verbatim, or `unchanged`>
 
 ## Confirmed good
 
