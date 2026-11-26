@@ -17,9 +17,14 @@ try:
     with open(sys.argv[1], encoding="utf-8") as sidecar:
         entry = json.load(sidecar)["checks"]["full-gate"]["runtime"]["platforms"]["linux-amd64"]
     url, sha = entry["url"], entry["sha256"]
-    if not re.fullmatch(r"[0-9a-f]{64}", sha) or not re.fullmatch(
+    release = re.fullmatch(
         r"https://github\.com/punt-labs/punt-kit/releases/download/"
-        r"handoff-runtime-v[1-9][0-9]*/punt-kit-linux-amd64-v[1-9][0-9]*\.tar\.gz", url
+        r"handoff-runtime-v(?P<version>[1-9][0-9]*)/punt-kit-linux-amd64-v(?P=version)\.tar\.gz", url
+    )
+    if (
+        not re.fullmatch(r"[0-9a-f]{64}", sha)
+        or release is None
+        or entry["bundle"] != f"punt-kit-linux-amd64-v{release['version']}"
     ):
         raise ValueError
 except (OSError, KeyError, TypeError, ValueError):

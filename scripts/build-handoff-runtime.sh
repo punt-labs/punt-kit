@@ -34,6 +34,13 @@ for notice in LICENSE-APACHE LICENSE-MIT; do
         "https://raw.githubusercontent.com/astral-sh/uv/0.13.9/$notice"
     test -s "$runtime/licenses/uv-$notice"
 done
+(
+    cd "$runtime/licenses"
+    sha256sum --check --status <<'SUMS'
+c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4  uv-LICENSE-APACHE
+860e3d7a86b84e6a7012c7a635fc64df475cebc6cce34dfeb73a5982ec58176c  uv-LICENSE-MIT
+SUMS
+) || { echo 'uv license checksum mismatch.' >&2; exit 1; }
 
 isolated=(env -i "HOME=$work/home" "TMPDIR=$work/tmp"
     "PATH=$runtime/bin:$runtime/node/bin:/usr/bin:/bin" LC_ALL=C TZ=UTC PYTHONDONTWRITEBYTECODE=1)

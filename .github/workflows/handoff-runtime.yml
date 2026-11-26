@@ -60,6 +60,7 @@ jobs:
               uv venv --offline --python 3.13 "$(mktemp -d)"
               npx --yes markdownlint-cli2 --version'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.event.pull_request.head.repo.full_name == github.repository
         with:
           name: punt-kit-handoff-runtime
           path: runtime-assets/*.tar.gz
@@ -78,6 +79,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Verify the candidate build run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run-id }}
+        run: |
+          if [[ ! $RUN_ID =~ ^[1-9][0-9]*$ ]]; then
+            echo 'Invalid runtime build run ID.' >&2
+            exit 2
+          fi
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID")
+          jq -e --arg repo "$GITHUB_REPOSITORY" '
+            .path == ".github/workflows/handoff-runtime.yml" and
+            .event == "pull_request" and .conclusion == "success" and
+            .head_repository.full_name == $repo
+          ' <<< "$run" >/dev/null || {
+            echo 'Use a successful Handoff runtime PR build from this repository.' >&2
+            exit 2
+          }
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: punt-kit-handoff-runtime
@@ -88,15 +107,34 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          pin=$(python3 -c 'import json, sys; p = json.load(open(sys.argv[1]))["checks"]["full-gate"]["runtime"]["platforms"]["linux-amd64"]; print(p["url"], p["sha256"])' .punt-labs/ethos/checks/snapshots/punt-kit.yaml)
-          read -r url sha <<< "$pin"
+          pin=$(jq -er '
+            .checks["full-gate"].runtime.platforms["linux-amd64"] | [.url, .sha256, .bundle] |
+            if all(.[]; type == "string" and (test("\\s") | not)) then join(" ")
+            else error("Invalid runtime URL, digest or bundle.") end
+          ' .punt-labs/ethos/checks/snapshots/punt-kit.yaml)
+          read -r url sha bundle <<< "$pin"
           if [[ ! $sha =~ ^[0-9a-f]{64}$ ||
-                ! $url =~ ^https://github\.com/punt-labs/punt-kit/releases/download/(handoff-runtime-v[1-9][0-9]*)/(punt-kit-linux-amd64-v[1-9][0-9]*\.tar\.gz)$ ]]; then
+                ! $url =~ ^https://github\.com/punt-labs/punt-kit/releases/download/(handoff-runtime-v([1-9][0-9]*))/(punt-kit-linux-amd64-v[1-9][0-9]*\.tar\.gz)$ ]]; then
             echo 'Invalid release URL or digest in the snapshot sidecar.' >&2
             exit 2
           fi
           tag=${BASH_REMATCH[1]}
-          asset=${BASH_REMATCH[2]}
+          version=${BASH_REMATCH[2]}
+          asset=${BASH_REMATCH[3]}
+          if [[ $bundle != "punt-kit-linux-amd64-v$version" || $asset != "$bundle.tar.gz" ]]; then
+            echo 'Runtime bundle, release tag and asset versions must match.' >&2
+            exit 2
+          fi
+          refs=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$tag")
+          if ! jq -e --arg ref "refs/tags/$tag" 'all(.[]; .ref != $ref)' <<< "$refs" >/dev/null; then
+            echo 'The release tag already exists or could not be verified.' >&2
+            exit 2
+          fi
+          releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")
+          if ! jq -e --arg tag "$tag" 'all(.[][]; .tag_name != $tag)' <<< "$releases" >/dev/null; then
+            echo 'A release or draft already uses this tag.' >&2
+            exit 2
+          fi
           cd runtime-assets
           printf '%s  %s\n' "$sha" "$sha.tar.gz" | sha256sum --check
           mv -- "$sha.tar.gz" "$asset"
