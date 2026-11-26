@@ -260,6 +260,10 @@ Generated edit hooks capture stdin in Bash and forward it through a fresh pipe
 for Linux compatibility. See [agent quality checks](docs/advisory-checks.md)
 for setup, the required ethos v5.2.0 release and timing reproduction.
 
+On Linux x86-64, a compatible Ethos snapshot runner can run the same handoff
+gate offline against a read-only checkout. See the
+[handoff snapshot guide](docs/HANDOFF-SNAPSHOT.md) to install the pinned runtime.
+
 `make check` includes `make design-shadow`, which checks design changes against
 the merge base with `origin/main`. If that ref is missing, fetch it with
 `git fetch origin main:refs/remotes/origin/main`. For a change targeting another
