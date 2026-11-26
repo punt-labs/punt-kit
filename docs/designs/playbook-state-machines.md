@@ -58,7 +58,7 @@ Defined before use, so the sections below can lean on them:
 - **Run-state** — the persisted record of one machine execution: its
   parameters, its current state, and enough breadcrumbs to resume. Distinct
   from `LoopState` in `workflow.md`, which is the *domain* the machine observes
-  (beads, PRs); run-state is the *machine's own* position.
+  (issues, PRs); run-state is the *machine's own* position.
 
 ## Section 1 — The Construct
 
@@ -547,7 +547,7 @@ states:
           If run-state recap_sent is already true, do nothing. Otherwise send
           the merge recap for PR ${pr} via beadle to the operator's recap
           address: subject "[repo] PR #${pr} merged: <title>", body with the
-          bead id, PR link, and one paragraph on what changed, why, and how it
+          issue id, PR link, and one paragraph on what changed, why, and how it
           left the system better (workflow §5 The merge recap). Immediately
           after the send returns, set recap_sent = true in run-state.
         # No shell postcondition: recap_sent lives in run-state, which the
@@ -613,11 +613,11 @@ three, not in full YAML.
 
 ```text
 states:                  # intake is first -> the initial state; poll = session cadence
-  intake   actions: sweep signals -> beads or close-at-door
+  intake   actions: sweep signals -> issues or close-at-door
            transitions: -> validate (unconditional)
-  validate actions: re-prove ready beads against main
+  validate actions: re-prove ready issues against main
            transitions: -> assess (unconditional)
-  assess   actions: sort validated beads by the standing order
+  assess   actions: sort validated issues by the standing order
            transitions:
              -> escalate  when: [ llm: ordering hit a fork the charter
                                         cannot resolve ]        # human gate

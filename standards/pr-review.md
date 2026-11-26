@@ -170,7 +170,7 @@ function local_review(diff):
         diff = this round's fix diff     # every change is reviewed,
                                          #   Low fixes included
     # at most four fix rounds, plus a fifth review that only verifies the
-    # fourth round's fixes. No deferral beads. Every caller acts only on
+    # fourth round's fixes. No deferral issues. Every caller acts only on
     # clean: on blocked, nothing opens and nothing is pushed until the
     # operator rules and local_review then returns clean.
 ```
@@ -416,7 +416,7 @@ function poll_tick(pr):
             fix it now (answered after the push, below), or answer it by
                 its source's path (answered(f))
             # never re-litigated; Qodo Lows are dropped by comments_routing;
-            # no deferral beads; the latest ruling governs
+            # no deferral issues; the latest ruling governs
     for each escalation the operator has ruled on:
         record the ruling in a ledger comment   # closes the escalation,
                                                 #   not the finding

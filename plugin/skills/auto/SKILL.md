@@ -43,7 +43,7 @@ For `list`, scan all applicable locations and print a table:
 ```text
 Name                Source      Description
 ───────────────────────────────────────────────────────────────────
-autopilot           org         Autonomous issue-driven development loop (beads-tracked repos)
+autopilot           org         Autonomous issue-driven development loop (Linear-tracked repos)
 permissions-rollout org         Roll out permission changes to all projects
 release             org         Release a Punt Labs project
 standards-rollout   org         Roll out a standards change across all projects

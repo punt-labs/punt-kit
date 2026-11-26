@@ -8,7 +8,7 @@ summaries are records; running-session streams and machine credentials are not.
 Write frequency alone does not decide ownership or tracking.
 
 This policy governs Punt Labs tools written in Python and Go. Third-party
-tools retain their own layout; `.beads/` is outside this contract. Harness
+tools retain their own layout. Harness
 integration files follow their harness contracts rather than becoming private
 tool state: for example, the host import line, `.claude/settings.json`,
 `.claude/agents/`, `opencode.json`, and tool-owned CI workflows. See

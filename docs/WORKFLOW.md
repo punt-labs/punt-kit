@@ -200,6 +200,6 @@ The sort is the standard's. What each rank means here:
 5. **Features.** New `punt` subcommands, new standards, new plugin commands
    or playbooks.
 
-punt-kit's beads also hold org-wide cross-repo work (CI rollouts, security
+punt-kit's Linear issues (label `repo:pkit`) also hold org-wide cross-repo work (CI rollouts, security
 enablement, multi-repo changes); those rank by the same sort, with the
 affected-repo count as the tiebreaker inside a rank.

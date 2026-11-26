@@ -83,7 +83,6 @@ networked client across the socket.
   CHANGELOG.md
   README.md
   DESIGN.md                # ADRs
-  .beads/                  # Issue tracking
 ```
 
 ### Rules

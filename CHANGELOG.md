@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- The `/punt:bead-review` slash command and skill are renamed `/punt:issue-review`
+  and now audit a repo's open Linear issues (label `repo:<name>`), proposing
+  changes and asking before any write. The `autopilot` playbook now picks,
+  claims and closes Linear issues instead of beads.
+
 ### Removed
 
 - Beads support is removed from `punt repo init`, `punt repo audit`,

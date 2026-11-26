@@ -1,6 +1,6 @@
 # Git Standard
 
-**Introduced:** 2026-07-27
+**Introduced:** 2026-07-27 · **Updated:** 2026-11-26
 
 The mechanical git operations between starting work and pushing it: which
 branch a commit lands on, how a branch's history is protected once it is
@@ -243,7 +243,6 @@ sequence lives in [Workflow](workflow.md) § Batch close-out):
 
 ```bash
 git push                      # push the current branch's commits to its upstream
-bd dolt push                  # where the repo tracks issues in dolt
 git status                    # must report the branch up to date with its upstream
 ```
 

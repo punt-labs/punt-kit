@@ -116,7 +116,7 @@ Every Claude Code plugin repo places its plugin content under a top-level
 │   └── LICENSE
 │
 ├── src/, cmd/, internal/, tests/, docs/, Makefile, ...   ← stays in repo,
-├── .envrc, .beads/, .punt-labs/, prfaq.*, ...            ← does not ship
+├── .envrc, .punt-labs/, prfaq.*, ...                     ← does not ship
 ```
 
 The `.claude-plugin/` directory sits **inside** `plugin/`, not at the repo
@@ -182,7 +182,7 @@ separate decision per repo.
 | Tests (`tests/`, `*_test.go`) | | ✓ |
 | Internal docs (`docs/`, `DESIGN.md`, `CHANGELOG.md`) | | ✓ |
 | Product materials (`prfaq.tex`, `prfaq.pdf`) | | ✓ |
-| Dev environment (`.envrc`, `.beads/`, `.punt-labs/`) | | ✓ |
+| Dev environment (`.envrc`, `.punt-labs/`) | | ✓ |
 | Build/CI (`Makefile`, `pyproject.toml`, `go.mod`, `.github/`) | | ✓ |
 
 The plugin ships the *Claude Code integration* (manifest + wrappers). It does

@@ -11,7 +11,7 @@ superseding embedded-tool deployment instructions in the historical plan.
 
 ## Scope
 
-29 open beads at start of sprint — 28 pre-existing plus `pkit-ptvc` (standards rot review) filed today. 3 in-progress meta-epics (`pkit-k29q` product rethink, `pkit-a8w9` CLAUDE.md redesign, `pkit-r94d` playbook DSL) run underneath the sprints below.
+29 open issues at start of sprint — 28 pre-existing plus `pkit-ptvc` (standards rot review) filed today. 3 in-progress meta-epics (`pkit-k29q` product rethink, `pkit-a8w9` CLAUDE.md redesign, `pkit-r94d` playbook DSL) run underneath the sprints below.
 
 ## Sequence
 
@@ -29,7 +29,7 @@ Read as a graph: **A ‖ D**, then **B**, then **C** (needs both B and D), with 
 
 Goal: eliminate every manual intervention `punt release` requires today. Uses shared synthetic-`gh`-output test harness (deliverable of epic `pkit-f85t`).
 
-| Bead | P | Kind |
+| Issue | P | Kind |
 |------|---|------|
 | `pkit-f85t.1` | P1 | `_get_project_version` has no plugin-only branch |
 | `pkit-f85t.2` | P1 | Phase 6 waits for `release.yml` that plugin-only projects lack |
@@ -47,7 +47,7 @@ Exit: next release runs zero-touch on a plugin-only project and a hybrid project
 
 Goal: `punt` becomes a kit manager for the repo it points at. Unblocks Sprint C.
 
-| Bead | P | Kind |
+| Issue | P | Kind |
 |------|---|------|
 | `pkit-qv4` | P1 | Rewrite filesystem.md to describe `.punt-labs/<tool>/` (already deployed) |
 | `pkit-pjwn` | P1 | `punt enable/install/status` verbs; includes `punt enable` for punt itself in punt-kit |
@@ -61,12 +61,12 @@ Exit: `punt enable`, `punt install <tool>`, `punt enable <tool>`, `punt status` 
 
 Goal: `punt audit` gains a judgment examiner scoped to declared kit. Deferred until after Sprint D so the examiner enforces a fresh corpus, not a rotted one.
 
-| Bead | P | Kind |
+| Issue | P | Kind |
 |------|---|------|
-| Findings type | — | First task inside `pkit-zmca`; not a separate bead |
+| Findings type | — | First task inside `pkit-zmca`; not a separate issue |
 | `pkit-zmca` | P1 | LLM judgment examiner, one standard per run |
 | `pkit-mb8k` | P2 | Scope audit to declared kit (unblocked by `pkit-qv4`) |
-| `pkit-jsxe` | P4 | Audit check for tracked bd runtime artifacts |
+| `pkit-jsxe` | P4 | Audit check for tracked tracker runtime artifacts |
 
 `pkit-mud6` and `pkit-1up8` (REST and MCP surfaces) stay P3, deferred until a consumer asks.
 
@@ -76,7 +76,7 @@ Exit: `punt audit --standard <name>` runs against a live standard, emits typed f
 
 Goal: careful, interactive review of all 29 standards against deployed fleet reality. Runs in parallel with Sprint A because it does not touch `release.py`.
 
-Epic: `pkit-ptvc` (filed 2026-08-30). Members already scoped: `pkit-qv4` (filesystem.md), `pkit-n6y8` (agent-engineering.md). Additional standards get sub-beads as the survey identifies drift — no preemptive 27-stub filing.
+Epic: `pkit-ptvc` (filed 2026-08-30). Members already scoped: `pkit-qv4` (filesystem.md), `pkit-n6y8` (agent-engineering.md). Additional standards get sub-issues as the survey identifies drift — no preemptive 27-stub filing.
 
 Method per standard (one session, operator-in-the-loop):
 
@@ -100,7 +100,7 @@ Exit: fleet cross-check report at `docs/standards-rot-survey-<date>.md`; every s
 
 Goal: prompt state-machine DSL lands. PR-loop is the first machine.
 
-| Bead | P | Kind |
+| Issue | P | Kind |
 |------|---|------|
 | `pkit-r94d` | P1 | Design (in progress) |
 | `pkit-445i` | P2 | Implementation: SCHEMA.md, executor SKILL.md, pr-loop.yaml, helpers |
@@ -120,7 +120,7 @@ Ride along with other sprints:
 ### Cancelled / already done
 
 - **claude2cursor** — already removed in DES-021. No action. CHANGELOG and DESIGN.md history stay.
-- **`pkit-kmos` reframed 2026-08-30**: OO ratchet tooling moves to its own repo, not to punt-kit. `python.md` and the OO adoption lang-rule remain the standards home and reference the external repo. This bead now covers filing the new repo, migrating the tooling out of `lux/tools/`, and pointing the standards references at the new location. Handled inside Sprint D so the standards changes land together.
+- **`pkit-kmos` reframed 2026-08-30**: OO ratchet tooling moves to its own repo, not to punt-kit. `python.md` and the OO adoption lang-rule remain the standards home and reference the external repo. This issue now covers filing the new repo, migrating the tooling out of `lux/tools/`, and pointing the standards references at the new location. Handled inside Sprint D so the standards changes land together.
 
 ## What is not in this plan
 
@@ -132,4 +132,4 @@ Ride along with other sprints:
 
 ## Buglist ledger
 
-Zeroing target: 29 open beads → 0 (28 pre-existing plus `pkit-ptvc` filed today). Excluding P3/P4 opportunistic and the three in-progress meta-epics, the concrete work is 21 beads across Sprints A–E. `pkit-ptvc` will add N sub-beads discovered during Sprint D.
+Zeroing target: 29 open issues → 0 (28 pre-existing plus `pkit-ptvc` filed today). Excluding P3/P4 opportunistic and the three in-progress meta-epics, the concrete work is 21 issues across Sprints A–E. `pkit-ptvc` will add N sub-issues discovered during Sprint D.

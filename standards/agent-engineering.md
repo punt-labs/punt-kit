@@ -110,7 +110,7 @@ another agent, or a human with no context.
 - Names should describe intent, not implementation.
 - Comments explain *why*, not *what* (the code shows what).
 - **Comments and docstrings never narrate the development process.** No
-  references to development phases, plans or roadmaps, issue or bead IDs,
+  references to development phases, plans or roadmaps, issue IDs,
   review-finding labels, or PR numbers in code. Those belong in commits, PRs,
   and the issue tracker — the audit trail below — not in code that outlives
   them. A comment that pins the code to a phase or a ticket documents the
