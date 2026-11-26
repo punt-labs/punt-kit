@@ -149,7 +149,7 @@ stricter than necessary and creates a fresh-vs-resume asymmetry for the same
 project shape (resume auto-detects, fresh does not). Recommend narrowing it
 to `if info.pyproject is None and info.language != "go" and not
 info.is_plugin:`. This is in the same function, three lines from the bug's
-own fresh-release call site, and is optional relative to the bead's
+own fresh-release call site, and is optional relative to the issue's
 acceptance criteria (which scopes to `--resume-from`) — flagged for the
 leader to confirm in scope or defer.
 
@@ -169,7 +169,7 @@ leader to confirm in scope or defer.
 - `test_run_release_resume_plugin_only_no_version_flag` (integration,
   exercises `run_release`'s resume path at `:3107`, not just the helper) —
   `--resume-from` a phase after 1, no `--version`, plugin-only project;
-  asserts no `ReleaseError` at version-resolution time (the failure this bead
+  asserts no `ReleaseError` at version-resolution time (the failure this issue
   reports verbatim: "Error: No pyproject.toml found").
 - If the adjacent fix (line 3092) is in scope:
   `test_run_release_fresh_plugin_only_no_version_flag` — same fixture, no
@@ -221,7 +221,7 @@ def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
 
 This mirrors phase 8's existing pattern (`if info.language != "python":
 return`, `src/punt_kit/release.py:1800-1801`) for the auto-skip branch, and
-adds the bead's alternative (b) — an actionable failure — for every project
+adds the issue's alternative (b) — an actionable failure — for every project
 shape that is *not* a pure plugin, so a Python/Go/hybrid project silently
 missing its release workflow still fails loudly instead of skipping.
 
@@ -346,7 +346,7 @@ metadata call) — no new timeout budget needed.
 **Behavioral note (accepted, not a defect)**: falling back to "ALL checks"
 includes informational-only checks such as "Claude Code Review" that the
 `isRequired`-filtered path deliberately ignores (see the function's own
-docstring, `:589`). This is what the bead's acceptance criterion (a)
+docstring, `:589`). This is what the issue's acceptance criterion (a)
 explicitly asks for ("falls back to waiting for ALL checks to pass") for a
 repo that has made a deliberate choice not to configure branch protection —
 documented here so review doesn't flag it as an oversight.
@@ -631,7 +631,7 @@ runner's fetch happens to include it), which makes it strictly worse than
 today's deterministic false-positive — a flaky guard is harder to diagnose
 than an always-failing one.
 
-**Bead's own rejected options (carried forward, unchanged)**:
+**Issue's own rejected options (carried forward, unchanged)**:
 
 - **Option 2 — pin to a stable ref/tag instead of a SHA.** Rejected: loses
   byte-equality, which is the property `check-readme-install-sha.sh`

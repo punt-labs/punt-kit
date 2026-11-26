@@ -505,7 +505,6 @@ missing directive.
   CLAUDE.md                 # Project-specific instructions (references this doc)
   CHANGELOG.md              # Keep a Changelog format
   README.md                 # User-facing documentation
-  .beads/                   # Issue tracking
 ```
 
 ## pyproject.toml

@@ -17,7 +17,7 @@ that the next reader needs. Remove redundant prose and commented-out code.
 
 ## PY-DOC-2: Comments and docstrings never narrate the development process
 
-Do not cite issue trackers (IDs or links), beads, PRs, review findings,
+Do not cite issue trackers (IDs or links), PRs, review findings,
 development phases, or plans. Do not narrate edits or past implementations
 ("now uses X", "used to do X, now does Y"). Keep that history in commits, PRs,
 the issue tracker, or the changelog.

@@ -3,14 +3,14 @@
 **Status:** ACCEPTED
 **Epic:** pkit-f85t — release engine: phase logic fixes and a failure-path test harness
 **Author:** adb (design mission m-2026-09-10-007)
-**Beads reconciliation:** the hosted DoltDB was unreachable while this design
+**Issue reconciliation:** the issue tracker was unreachable while this design
 was written and recovered afterward. All 7 original epic children are closed
 (fixed in earlier waves); the harness is the epic's remaining shared
 deliverable. The design's own defect findings (§4) are filed as
 pkit-f85t.5–.8. §4 was extended after that filing with **defect #8** (the
 Phase 5 tag-then-push resume bug, P0) during a subsequent review round —
 it is not yet covered by an existing `pkit-f85t` child; see §4 item 8 and
-Wave 4 for the filing note. No child bead conflicts with this plan.
+Wave 4 for the filing note. No child issue conflicts with this plan.
 
 ## 0. The pattern to kill
 
@@ -20,7 +20,7 @@ Every release-engine defect on record — `pkit-d7mz`, `pkit-plxh`, `pkit-dlv6`,
 the same way: a live release broke with an operator watching, and the fix
 followed a post-mortem reconstruction of what must have happened (DES-029's
 own text: "no run log survived; the leading hypothesis is..."). Not one of
-these thirteen defects (8 named beads + 4 `pkit-f85t` children + the DES-029
+these thirteen defects (8 named issues + 4 `pkit-f85t` children + the DES-029
 incident) has a regression test that existed *before* the incident that found
 it. `tests/test_release.py` is 7,169 lines and already covers an
 enormous amount of phase logic — but every one of those tests was written
@@ -548,7 +548,7 @@ the fake, not the release engine:
   command, but cannot simulate "PyPI's own eventual-consistency window,"
   because that is a property of PyPI's infrastructure, not of this
   codebase.
-- **Real hook latency** (`bd hooks run` against a networked Dolt server,
+- **Real hook latency** (the issue tracker's git hook against a networked server,
   which is why `GIT_HOOK = 600` exists). The harness can and should test that
   the *timeout budget* is applied to the right call sites (there is already
   `test_hook_firing_git_calls_do_not_use_default_timeout` doing exactly
@@ -626,7 +626,7 @@ rationale).
 | 55 | All phases (Go) | Go-specific `make check`/`go vet`/`go test -race` failure paths | `test_go_dry_run_no_side_effects` covers the dry-run path only; no Go quality-gate-failure test parallel to the Python one (#5) | 🔧 |
 | 56 | Cross-cutting | Real GitHub API rate limiting / token expiry timing during an hours-long release | N/A | ⛔ — operational concern, not unit-testable; §2d |
 | 57 | Cross-cutting | PyPI eventual-consistency window after a genuine publish | N/A | ⛔ — exogenous to this codebase; §2d |
-| 58 | Cross-cutting | Real `bd hooks run` / Dolt server latency variance | `test_git_hook_timeout_exceeds_beads_hook_ceiling` asserts the *budget*; the real latency is exogenous | ⛔ — §2d |
+| 58 | Cross-cutting | Real tracker git-hook / server latency variance | `test_git_hook_timeout_exceeds_beads_hook_ceiling` asserts the *budget*; the real latency is exogenous | ⛔ — §2d |
 
 **Coverage counts (recounted directly against the table above):** 62 rows
 total — 37 rows ✅ covered today, 22 rows 🔧 enabled-by-harness (the delivery
@@ -764,7 +764,7 @@ existing bar), **P2** (inconsistency/hardening, no known live incident yet).
    names against a genuinely-incomplete state at that phase.**
    `test_phase_names_cover_all_phases` and
    `test_phase_name_round_trips_through_phase_names` (`tests/test_release.py`)
-   already iterate the imported `PHASE_NAMES` mapping directly — not a `bd`
+   already iterate the imported `PHASE_NAMES` mapping directly — not a tracker
    command; it is now `PhaseOrder.NUMBERS` in `phases/shared/phase_order.py` — and a
    handful of individual phases have their own resume test. Nothing
    parametrizes "start the pipeline fresh,
@@ -795,7 +795,7 @@ existing bar), **P2** (inconsistency/hardening, no known live incident yet).
    was already pushed" from "exists locally and was never pushed" (e.g. by
    also checking `git ls-remote origin {tag}` or by pushing unconditionally
    when the tag was just created in this same run) before it is safe to
-   short-circuit. **Flagged here as a defect candidate for the epic; no bead
+   short-circuit. **Flagged here as a defect candidate for the epic; no issue
    ID assigned by this document — filing is the leader's call.**
 
 ## 5. Incremental delivery plan
@@ -877,7 +877,7 @@ above, this includes adding the optional `skips: SkipRecorder | None = None`
 parameter to `PrMerger.__new__` and threading `_skips` through
 `_sibling_pr_merge`'s `PrMerger(...)` construction — that plumbing is part of
 Wave 2's write-set, not a separate step. The fixes this wave carries are
-filed as explicit beads: **pkit-f85t.6** (SkipRecorder routing for
+filed as explicit issues: **pkit-f85t.6** (SkipRecorder routing for
 `merge_in_sibling`'s secondary cleanup failure — defect #2) and
 **pkit-f85t.8** (`gh.py` imports `CI_WATCH` instead of hardcoding 7200, with
 a constant-derivation test — defect #4).
@@ -916,7 +916,7 @@ only a coverage gap, and its regression test and its fix are one unit of
 work (same pattern as Wave 2 pairing defect #2's fix with its test). It is
 listed in this wave's scope because it shares Phase 5 with row 20's other
 coverage work, not because it is equally low-risk; the worker for this wave
-should treat 20a as the first item, not an afterthought, once a bead exists
+should treat 20a as the first item, not an afterthought, once an issue exists
 for it.
 
 ### Wave 5 — Exhaustive resume-point sweep (matrix row 53, defect #7)
@@ -945,5 +945,5 @@ reconciled against the epic: all 7 original `pkit-f85t` children are closed
 deliverable, this design's own defect findings are filed as pkit-f85t.5–.8
 (carried by Waves 2 and 4 above), and no child conflicts with this plan.
 Defect #8 (Phase 5's resume bug, added in a later review round) still needs
-its own bead filed before Wave 4 can carry it as more than a coverage item —
+its own issue filed before Wave 4 can carry it as more than a coverage item —
 flagged for the epic owner, not assigned an ID by this document.

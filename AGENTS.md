@@ -2,9 +2,9 @@
 
 This is **punt-kit** — the standards, design patterns, and scaffolding repo for Punt Labs. When working in any Punt Labs project, consult these standards and patterns.
 
-## Beads
+## Issue Tracking
 
-Read `.punt-labs/punt/CLAUDE.md` before planning or writing to the issue tracker. Linear is the tracker of record where this repo is migrated. Beads is a local mirror there and the tracker of record elsewhere.
+Read `.punt-labs/punt/CLAUDE.md` before planning or writing to the issue tracker. Linear is the tracker of record: team Punt Labs (key `PL`), scoped by the repo label (`repo:pkit` for this repo).
 
 ## Standards
 
@@ -122,7 +122,7 @@ Use this checklist to audit a project for compliance:
 - [ ] **plugin.json has version** — if the project is a Claude Code plugin ([plugins](standards/plugins.md))
 - [ ] **Required hooks exist** — SessionStart + PostToolUse for marketplace plugins with MCP tools ([plugins](standards/plugins.md))
 - [ ] **`.mcp.json` is gitignored** — if the project is a Claude Code plugin ([plugins](standards/plugins.md))
-- [ ] **Beads initialized** — `.beads/` directory exists and is committed ([workflow](standards/workflow.md))
+- [ ] **Linear repo label exists** — the repo has a `repo:<name>` label on team `PL` and `.punt-labs/punt/CLAUDE.md` is deposited ([workflow](standards/workflow.md))
 - [ ] **Quality gates defined** — project CLAUDE.md lists the quality gate commands for this project type ([workflow](standards/workflow.md))
 - [ ] **Design decision log exists** — `DESIGN.md` if the project has non-trivial architecture decisions ([workflow](standards/workflow.md))
 - [ ] **README documents installation** — clear, copy-pasteable install instructions
@@ -140,14 +140,13 @@ Use this checklist to audit a project for compliance:
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
 
-1. **File issues for remaining work** — Create beads for anything that needs follow-up
+1. **File issues for remaining work** — Create Linear issues for anything that needs follow-up
 2. **Run quality gates** (if code changed) — Tests, linters, builds
 3. **Update issue status** — Close finished work, update in-progress items
 4. **PUSH TO REMOTE**:
 
    ```bash
    git pull --rebase
-   bd sync
    git push
    git status  # MUST show "up to date with origin"
    ```

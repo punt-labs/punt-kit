@@ -783,7 +783,7 @@ without a value exits 2.
 ## 7. Operator decisions
 
 Each item fixes a choice the rulings left open, or departs from a standard
-or the bead text, and is phrased for a one-word ruling.
+or the issue text, and is phrased for a one-word ruling.
 
 1. **The class is `Finding` in `src/punt_kit/audit_finding.py`, with
    `Rule` and `Location` beside it; `Severity` and `Examiner` are
@@ -845,7 +845,7 @@ or the bead text, and is phrased for a one-word ruling.
    Confirm or course-correct.
 10. **Remediation dispatch is manual in both forms: the tool writes the
     hand-off file and the leader writes the contract or spawns the
-    sub-agent.** The bead says findings "dispatch to the ethos mission
+    sub-agent.** The issue says findings "dispatch to the ethos mission
     harness"; a tool-generated contract would carry a write-set the tool
     cannot judge, and `ethos mission create` is the leader's act under
     `docs/WORKFLOW.md`. The alternative, `punt audit --standard x --dispatch`
@@ -1007,6 +1007,6 @@ are disjoint.
 ### Out of this write-set
 
 pkit-mb8k (scoping to the declared kit) changes which checks run and is
-its own bead after wave 2. pkit-1up8 and pkit-mud6 consume
+its own issue after wave 2. pkit-1up8 and pkit-mud6 consume
 `Report.to_json()` and are not touched here. pkit-jsxe is one more
 deterministic check and rides on any wave-2 branch.

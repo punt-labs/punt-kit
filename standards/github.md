@@ -1,6 +1,6 @@
 # GitHub Standards
 
-**Updated:** 2026-10-26
+**Updated:** 2026-11-26
 
 Rules for repository configuration, CI/CD, branch protection, and code review across all Punt Labs projects.
 
@@ -111,7 +111,7 @@ Every repo has two config files at the root:
 
 ```json
 {
-  "ignores": [".beads/", ".claude/", ".venv/", ".tmp/"]
+  "ignores": [".claude/", ".venv/", ".tmp/"]
 }
 ```
 
@@ -121,7 +121,7 @@ Add project-specific overrides in `.markdownlint-cli2.jsonc` when certain direct
 
 ```json
 {
-  "ignores": [".beads/", ".claude/", ".venv/"],
+  "ignores": [".claude/", ".venv/"],
   "overrides": [
     {
       "files": ["tests/fixtures/*.md"],
@@ -231,4 +231,4 @@ Use this checklist when creating a new repo:
 
 ### Existing repositories
 
-Audit against the checklist in [AGENTS.md](../AGENTS.md). Create beads for each gap. Apply incrementally — branch protection and CI first, then the review bots, then security settings.
+Audit against the checklist in [AGENTS.md](../AGENTS.md). File a Linear issue for each gap, labelled with the repo's `repo:<name>` label. Apply incrementally — branch protection and CI first, then the review bots, then security settings.

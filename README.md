@@ -148,7 +148,7 @@ The `punt@punt-labs` plugin adds these commands to Claude Code. The plugin does 
 | `/punt:pii [path] [--staged]` | Run `punt repo scan-pii` |
 | `/punt:reconcile [path]` | Run `punt repo audit`, then have Claude compare the project's CI workflows, `CLAUDE.md`, and `pyproject.toml` with the standards and edit the parts that differ. Use it for changes that need judgment, which `punt repo audit --fix` does not make |
 | `/punt:auto <playbook>` | Run an automation playbook: `release`, `autopilot`, `makefile`, `permissions-rollout`, `reconcile-memory`, or `standards-rollout` |
-| `/punt:bead-review [repo]` | Review every open bead for clarity, validity, and priority, closing invalid ones and rewriting the rest. In a repository whose backlog has moved to Linear it stops and points you to Linear |
+| `/punt:issue-review [repo]` | Review every open Linear issue labelled `repo:<name>` for clarity, validity, and priority, then propose cancellations and rewrites and apply them only after you approve |
 
 ### What `punt repo init` Creates
 

@@ -1,6 +1,6 @@
 # Integration Standards
 
-**Updated:** 2026-09-10
+**Updated:** 2026-11-26
 
 How Punt Labs tools discover, communicate with, and coordinate each other
 inside a Claude Code session — without hard dependencies.
@@ -53,8 +53,6 @@ by `<tool> enable` and deleted by `<tool> disable`
 ([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)).
 The marker supersedes every legacy repo-root sentinel as the presence signal,
 whatever shape it took — see [legacy shapes](../docs/repo-layout.md#compatibility-inventory).
-`.beads/` has no separate enable step and stays as-is —
-[punt-labs-dir.md](punt-labs-dir.md) states its exemption.
 
 | Tool | Presence check |
 |------|----------------|
@@ -62,7 +60,6 @@ whatever shape it took — see [legacy shapes](../docs/repo-layout.md#compatibil
 | Vox | `.punt-labs/vox/enabled` |
 | Lux | `.punt-labs/lux/enabled` |
 | Ethos | `.punt-labs/ethos/enabled` |
-| Beads | `.beads/` |
 | Quarry | `.punt-labs/quarry/enabled` |
 
 **Rule**: Check presence with a simple path existence test. Never import a
@@ -129,8 +126,8 @@ and [DES-009](../DESIGN.md#des-009-building-block-hook-ownership).
 **Rule 3: Consumers add domain-specific context.** Only the domain
 owner has the context for meaningful content. Z-spec narrating model
 check results via vox is consumer behavior. Quarry rendering search
-results via lux is consumer behavior. These beads belong in the
-consumer project, not the building block.
+results via lux is consumer behavior. The Linear issues for this
+work carry the consumer project's repo label, not the building block.
 
 #### L3: State
 
@@ -140,7 +137,6 @@ Read peer state through **shared file schemas** with well-known formats.
 |--------|----------|---------|
 | TOML | Configuration | `pyproject.toml` |
 | YAML frontmatter | Document metadata | `.punt-labs/vox/vox.md`, `.punt-labs/quarry/config.md` |
-| JSONL | Append-only logs | `.beads/issues.jsonl` |
 | Wheel/sdist | Build artifacts | `dist/punt_biff-1.4.2-py3-none-any.whl` |
 
 **Build artifacts as L3 state.** A project's `dist/` directory contains wheels
@@ -183,7 +179,7 @@ Examples:
 
 - The prfaq researcher agent checks for quarry MCP tools (L1), uses them if
   available, and degrades to web search if not.
-- Biff's `Stop` hook reads beads state (L3) and vox config (L3) to compose a
+- Biff's `Stop` hook reads git state (L2) and vox config (L3) to compose a
   session recap that is both spoken and messaged.
 
 **Rule**: Orchestration must declare its degradation path. Document what
@@ -250,7 +246,6 @@ Pure building blocks with no upstream awareness:
 |-------|------|-----------|
 | **vox** | TTS engine — audio output | biff (peer), langlearn-tts (hard), dungeon (peer) |
 | **lux** | Visual output surface — tables, charts, UI | prfaq (peer), quarry (peer), langlearn (peer), dungeon (peer) |
-| **beads** | Issue tracking (external) | biff (peer) |
 | **langlearn-types** | Shared interfaces for langlearn family | langlearn (hard), langlearn-tts (hard), langlearn-anki (hard), langlearn-imagegen (hard) |
 | **ethos** | Identity + session context delivery | quarry (peer), biff (peer), vox (peer) |
 
@@ -259,7 +254,6 @@ Pure building blocks with no upstream awareness:
 | Integration | Layers | Degradation |
 |-------------|--------|-------------|
 | biff → vox | L0, L2, L3 | Without vox: messages are text-only. Hook-triggered vocalizations (L2) are the primary path; 1–2 use cases may also use MCP tools (L1). |
-| biff → beads | L0, L1, L2, L3 | Without beads: no issue context in messages. |
 | prfaq → quarry | L1, L5 | Without quarry: researcher agent falls back to web search. |
 | prfaq → lux | L1 | Without lux: text-only output in terminal. With lux: visual PR/FAQ dashboard, meeting displays. |
 | quarry → lux | L1 | Without lux: CLI text output. With lux: interactive data explorer, search result tables. Could replace quarry-menubar. |
@@ -280,7 +274,7 @@ relevant project's DESIGN.md or this standard) before implementation.
 ## Bundled Integrations
 
 When we integrate with a tool that ships separately — whether external
-(git, gh) or internal (ethos, beadle, beads) — the integration code
+(git, gh) or internal (ethos, beadle) — the integration code
 ships with our package. But structurally, these are still integrations,
 not core logic.
 
@@ -304,9 +298,9 @@ structure should still reflect the integration boundary in all cases.
    at L0–L3 just like peer integrations:
    - **L0**: Sentinel detection (`.git` exists — file or directory, since
      worktrees use a file pointing to the actual gitdir)
-   - **L1**: Binary on PATH (`git`, `gh`, `bd`)
-   - **L2**: Output parsing (git log, git status, beads JSONL)
-   - **L3**: State files (`.git/` internals, `.beads/issues.jsonl`)
+   - **L1**: Binary on PATH (`git`, `gh`)
+   - **L2**: Output parsing (git log, git status)
+   - **L3**: State files (`.git/` internals)
 
 3. **Degrade when absent.** Quarry works without git (indexes files,
    serves search). Git integration adds commit-aware sync, branch
@@ -332,14 +326,13 @@ When it's separated, you get:
 - An integration layer that translates between git concepts and
   quarry concepts
 - Tests that can exercise core logic without a git repo
-- A pattern for adding more integrations (beads, beadle, Jira, etc.)
+- A pattern for adding more integrations (beadle, Linear, etc.)
 
 ### Candidates for bundled integrations
 
 | Tool | What we read | What it enables |
 |------|-------------|----------------|
 | **git** | `.git/`, status, log, `.gitignore` | Commit-aware sync, branch detection, ignore filtering |
-| **beads** | `.beads/issues.jsonl` | Work context in agent sessions, bead-linked memories |
 | **beadle** | Email via MCP | Email memory, auto-ingest correspondence |
 | **gh** | GitHub API via CLI | PR context, issue linking, review integration |
 
@@ -388,7 +381,7 @@ and every time a review has to check both are still working.
 2. **Biff every consumer** before the rename PR opens. Include the
    rename table and the ETA. Address by session name from `/who`
    (never `@repo` aliases — they deliver nowhere. Biff is the only
-   cross-repo coordination channel; beads and GitHub issues do not
+   cross-repo coordination channel; Linear and GitHub issues do not
    reach another repo's agent).
 3. **Wait for `ack` from every consumer.** Silence is not consent —
    hold the rename PR until every consumer replies.
@@ -400,7 +393,7 @@ and every time a review has to check both are still working.
    surface against the new block version.
 
 **Offline consumers** — repos whose agent is not currently in `/who`
-— get a bead in their own repo (`cd ../<consumer> && bd create ...`)
+— get a Linear issue labelled with their repo (`save_issue` on team `PL`)
 naming the rename and the ETA. That is their inbox until the agent
 returns.
 

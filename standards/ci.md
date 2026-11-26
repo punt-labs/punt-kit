@@ -1,6 +1,6 @@
 # CI Standards
 
-**Introduced:** 2026-08-30
+**Introduced:** 2026-08-30 · **Updated:** 2026-11-26
 
 What continuous integration must prove before a merge, for every Punt Labs
 repository. The floor is every supported OS; the rest is grounded in the published CI literature, cited inline. Where common practice
@@ -67,7 +67,7 @@ upper limit about 10" [4] independently agree.
   by deleting tests.
 - Order checks fastest-first within a job so failures surface early [2], [3].
 - Each repo names its long pole (the slowest leg) in its CI docs so
-  slowness has an owner. Exceeding the budget files a bead.
+  slowness has an owner. Exceeding the budget files a Linear issue.
 
 ## 5. What the pipeline must contain
 
@@ -93,7 +93,7 @@ guidance is literal: "don't tolerate flaky tests" [5]. Fowler: "99.9%
 green is still red" [1].
 
 - A test observed to flake is fixed or quarantined **the same day** it is
-  identified; a quarantined test gets a bead and does not silently return.
+  identified; a quarantined test gets a Linear issue and does not silently return.
 - Retrying a failed job to get a green run without diagnosing the failure
   is prohibited. Re-run only after reading the logs and classifying the
   failure (real defect / infrastructure / flake), and record the class.

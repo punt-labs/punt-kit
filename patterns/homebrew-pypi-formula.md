@@ -190,8 +190,7 @@ decision, not something an agent should pick unilaterally:
    trees may not fit this distribution channel the way pure-Python CLIs do.
 
 `quarry.rb` remains an unfinished scaffold pending that decision — tracked as
-bead `quarry-dbsn` in the `quarry` repo's own issue tracker (`bd show
-quarry-dbsn` from within that repo), which has the specific finding and the
+a Linear issue labelled `repo:quarry`, which has the specific finding and the
 operator escalation.
 
 ## Consequences
@@ -233,4 +232,4 @@ operator escalation.
 - **quarry** — second real-world test; hit the wheel-only failure mode
   above. `Formula/quarry.rb` remains an unfinished scaffold (`sha256
   "PLACEHOLDER"`, no resource blocks) pending an operator decision — see
-  bead `quarry-dbsn` in the `quarry` repo.
+  the Linear issue labelled `repo:quarry`.
