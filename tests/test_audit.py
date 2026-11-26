@@ -83,6 +83,32 @@ def test_audit_fails_the_linear_guide_check_when_the_guide_is_missing(
     assert "Missing .punt-labs/punt/CLAUDE.md" in out
 
 
+def test_audit_does_not_flag_a_dormant_punt(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _make_compliant_python(tmp_path)
+    (tmp_path / ".punt-labs" / "punt" / "enabled").unlink(missing_ok=True)
+    (tmp_path / "CLAUDE.md").write_text("# Agent Instructions\n")
+
+    run_audit(str(tmp_path))
+
+    assert f"✗ {_GUIDE_LABEL}" not in capsys.readouterr().out
+
+
+def test_audit_fails_an_import_left_behind_when_punt_is_not_enabled(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _make_compliant_python(tmp_path)
+    (tmp_path / ".punt-labs" / "punt" / "enabled").unlink(missing_ok=True)
+
+    with pytest.raises(SystemExit):
+        run_audit(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert f"✗ {_GUIDE_LABEL}" in out
+    assert "punt is not enabled" in out
+
+
 def test_audit_fails_the_linear_guide_check_when_claude_md_omits_the_import(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
