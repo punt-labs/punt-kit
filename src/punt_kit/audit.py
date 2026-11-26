@@ -15,9 +15,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from punt_kit.audit_github import GithubSettingsAudit
-from punt_kit.audit_guide import PuntGuideAudit
-from punt_kit.audit_layout import LayoutAudit
-from punt_kit.audit_permissions import PermissionsAudit
+from punt_kit.audit_repo_config import RepoConfigAudit
 from punt_kit.audit_report import (
     FAIL,
     FIXED,
@@ -103,10 +101,8 @@ def run_audit(path: str, *, options: AuditOptions = _DEFAULTS) -> tuple[int, int
         partial(_check_markdownlint_content, info),
         partial(_check_py_typed, info, fix=options.fix),
         partial(_check_changelog, info, fix=options.fix),
-        PuntGuideAudit(info).findings,
         partial(_check_claude_md, info),
-        PermissionsAudit(info).findings,
-        LayoutAudit(info).findings,
+        *RepoConfigAudit(info).checks(),
         partial(_check_makefile, info),
         partial(_check_plugin_dev_isolation, info),
         partial(_check_install_sh, info),
@@ -453,6 +449,27 @@ def _check_makefile(info: ProjectInfo) -> list[tuple[str, str, str]]:
     return results
 
 
+def _check_plugin_release_scripts(info: ProjectInfo) -> list[tuple[str, str, str]]:
+    """Check the release and restore scripts exist.
+
+    Required of hybrid projects only: plugins.md "Release flow for pure
+    plugins" lets a pure plugin lack them and do the swap-tag-restore by hand,
+    so failing one would be a false positive.
+    """
+    label = "Release/restore scripts exist"
+    missing = [
+        script
+        for script in ("scripts/release-plugin.sh", "scripts/restore-dev-plugin.sh")
+        if not (info.root / script).exists()
+    ]
+    if not missing:
+        return [(PASS, label, "")]
+    if info.is_hybrid:
+        return [(FAIL, label, f"Missing: {', '.join(missing)}")]
+    detail = "Pure plugin — swap-tag-restore is manual (plugins.md, DES-007)"
+    return [(INFO, label, detail)]
+
+
 def _check_plugin_dev_isolation(
     info: ProjectInfo,
 ) -> list[tuple[str, str, str]]:
@@ -488,35 +505,7 @@ def _check_plugin_dev_isolation(
 
     results.extend(_check_plugin_dev_suffix(info))
 
-    # Required of hybrid projects only: plugins.md "Release flow for pure
-    # plugins" lets a pure plugin lack scripts/release-plugin.sh and do the
-    # swap-tag-restore by hand, so failing one would be a false
-    # positive.
-    release_script = info.root / "scripts" / "release-plugin.sh"
-    restore_script = info.root / "scripts" / "restore-dev-plugin.sh"
-    missing_scripts: list[str] = []
-    if not release_script.exists():
-        missing_scripts.append("scripts/release-plugin.sh")
-    if not restore_script.exists():
-        missing_scripts.append("scripts/restore-dev-plugin.sh")
-    if not missing_scripts:
-        results.append((PASS, "Release/restore scripts exist", ""))
-    elif info.is_hybrid:
-        results.append(
-            (
-                FAIL,
-                "Release/restore scripts exist",
-                f"Missing: {', '.join(missing_scripts)}",
-            )
-        )
-    else:
-        results.append(
-            (
-                INFO,
-                "Release/restore scripts exist",
-                "Pure plugin — swap-tag-restore is manual (plugins.md, DES-007)",
-            )
-        )
+    results.extend(_check_plugin_release_scripts(info))
 
     # Anchored on the plugin root, not the repo root: commands live beside the
     # manifest, and a repo-root glob would find nothing and report nothing.

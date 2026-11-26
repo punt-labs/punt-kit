@@ -529,27 +529,15 @@ def _init_permissions(info: ProjectInfo) -> list[str]:
     permissions["allow"] = allow
 
     # Merge allow: add missing permissions, never remove existing
-    allow_strs = [str(x) for x in allow]
-    added: list[str] = []
-    for perm in standard_perms:
-        if perm not in allow_strs:
-            allow.append(perm)
-            added.append(perm)
+    added = _merge_rules(allow, standard_perms)
 
     # Merge deny: add missing deny rules, never remove existing
-    standard_deny = build_standard_deny_rules()
     deny_raw = permissions.get("deny")
     deny: list[object] = (
         cast("list[object]", deny_raw) if isinstance(deny_raw, list) else []
     )
     permissions["deny"] = deny
-
-    deny_strs = [str(x) for x in deny]
-    added_deny: list[str] = []
-    for rule in standard_deny:
-        if rule not in deny_strs:
-            deny.append(rule)
-            added_deny.append(rule)
+    added_deny = _merge_rules(deny, build_standard_deny_rules())
 
     # Prune rules Claude Code can never match, such as Write(.env) and
     # Write(.envrc): each one warns once per session until it is gone.
@@ -582,6 +570,14 @@ def _init_permissions(info: ProjectInfo) -> list[str]:
         console.print(f"    [dim]dead rule removed:[/dim] {escape(rule)}")
 
     return [rel]
+
+
+def _merge_rules(rules: list[object], wanted: list[str]) -> list[str]:
+    """Append the wanted rules that ``rules`` lacks, keeping the rest; return them."""
+    present = {str(rule) for rule in rules}
+    added = [rule for rule in wanted if rule not in present]
+    rules.extend(added)
+    return added
 
 
 def _prune_dead_rules(permissions: dict[str, object]) -> list[str]:
