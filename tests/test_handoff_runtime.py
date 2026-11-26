@@ -69,14 +69,16 @@ def test_installer_rejects_unknown_flags(checkout: Path, tmp_path: Path) -> None
 
 
 def test_installer_previews_without_arguments(checkout: Path, tmp_path: Path) -> None:
+    profile = json.loads((checkout / PROFILE).read_text())
+    pin = profile["checks"]["full-gate"]["runtime"]["platforms"]["linux-amd64"]
+    sha = pin["sha256"]
     result = _install(checkout, tmp_path)
     assert result.returncode == 0
     assert result.stdout.splitlines() == [
-        "Bundle: punt-kit-linux-amd64-v1",
-        "URL: https://github.com/punt-labs/punt-kit/releases/download/"
-        "handoff-runtime-v1/punt-kit-linux-amd64-v1.tar.gz",
-        f"SHA-256: {SHA256}",
-        f"Destination: {tmp_path}/.punt-labs/ethos/runtimes/{SHA256}.tar.gz",
+        f"Bundle: {pin['bundle']}",
+        f"URL: {pin['url']}",
+        f"SHA-256: {sha}",
+        f"Destination: {tmp_path}/.punt-labs/ethos/runtimes/{sha}.tar.gz",
         "Use --apply to install this runtime.",
     ]
     assert not (tmp_path / ".punt-labs").exists()
