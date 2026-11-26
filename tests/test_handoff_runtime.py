@@ -36,16 +36,33 @@ def checkout(tmp_path: Path) -> Path:
 
 
 def _install(
-    checkout: Path, home: Path, archive: Path
+    checkout: Path, home: Path, *args: str | Path
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["bash", str(checkout / INSTALLER), str(archive)],
+        ["bash", str(checkout / INSTALLER), *(str(arg) for arg in args)],
         env={"HOME": str(home), "PATH": "/usr/local/bin:/usr/bin:/bin"},
         capture_output=True,
         text=True,
         check=False,
         timeout=15,
     )
+
+
+@pytest.mark.parametrize("flag", ["-h", "--help"])
+def test_installer_help_does_not_write(
+    checkout: Path, tmp_path: Path, flag: str
+) -> None:
+    result = _install(checkout, tmp_path, flag)
+    assert result.returncode == 0
+    assert "usage" in result.stdout
+    assert not (tmp_path / ".punt-labs").exists()
+
+
+def test_installer_rejects_unknown_flags(checkout: Path, tmp_path: Path) -> None:
+    result = _install(checkout, tmp_path, "--unknown")
+    assert result.returncode == 2
+    assert "usage" in result.stderr
+    assert not (tmp_path / ".punt-labs").exists()
 
 
 def test_installs_and_reuses_verified_archive(checkout: Path, tmp_path: Path) -> None:

@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+usage() {
+    printf 'usage (Linux x86_64): %s [LOCAL_ARCHIVE]\n' "$0"
+}
+
+case "${1:-}" in
+    -h|--help) usage; exit 0 ;;
+    -*) usage >&2; exit 2 ;;
+esac
+
 if [[ $# -gt 1 || $(uname -s)/$(uname -m) != Linux/x86_64 ]]; then
-    printf 'usage (Linux x86_64): %s [LOCAL_ARCHIVE]\n' "$0" >&2
+    usage >&2
     exit 2
 fi
 
