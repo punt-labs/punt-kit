@@ -62,6 +62,10 @@ extend-exclude = [".docs/native-harness-plan/sources", ".claude"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "TCH", "LOG", "G", "T20"]
 
+[tool.ruff.lint.flake8-type-checking]
+# Typer reads command annotations at runtime, so typer must stay a real import.
+exempt-modules = ["typing", "typer"]
+
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
@@ -89,7 +93,7 @@ typeCheckingMode = "strict"
 
 [tool.punt.pii]
 allow_emails = ["hello@punt-labs.com"]
-ignore_files = ["tests/test_pii.py", ".beads/*"]
+ignore_files = ["tests/test_pii.py"]
 
 [tool.oo-ratchet.layers]
 entry = [
@@ -105,6 +109,8 @@ entry = [
 ]
 adapters = [
     "punt_kit.audit_github",
+    "punt_kit.audit_guide",
+    "punt_kit.audit_repo_config",
     "punt_kit.audit_report",
     "punt_kit.claude_markers",
     "punt_kit.claude_md",
@@ -116,7 +122,6 @@ adapters = [
     "punt_kit.git_checkout",
     "punt_kit.install",
     "punt_kit.install_git",
-    "punt_kit.init_beads",
     "punt_kit.logging_config",
     "punt_kit.paths",
     "punt_kit.pii",

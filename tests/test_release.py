@@ -394,19 +394,6 @@ def test_preflight_fails_untracked_file(tmp_path: Path) -> None:
         _phase1_preflight(info, dry_run=True)
 
 
-def test_preflight_ignores_untracked_beads(tmp_path: Path) -> None:
-    """Untracked .beads/ content does not block a release."""
-    root = _make_release_project(tmp_path)
-    beads = root / ".beads"
-    beads.mkdir()
-    (beads / "state.json").write_text("{}")
-
-    info = detect(root)
-
-    # Should not raise
-    _phase1_preflight(info, dry_run=True)
-
-
 def test_preflight_fails_wrong_branch(tmp_path: Path) -> None:
     """Pre-flight fails when not on main branch."""
     root = _make_release_project(tmp_path)
@@ -2919,15 +2906,6 @@ def test_validate_sibling_diagnoses_status_read_command_failure(
 
     with pytest.raises(ReleaseError, match="git status --porcelain failed"):
         SiblingRepo(sibling, "sib", ops=ops).validate()
-
-
-def test_validate_sibling_ignores_unstaged_beads_modification(tmp_path: Path) -> None:
-    """A tracked ``.beads/`` file modified in the worktree (`` M`` status, one
-    leading space) is harmless and must not block a release."""
-    sibling = _make_sibling(tmp_path, "sib", {".beads/issues.jsonl": "{}\n"})
-    (sibling / ".beads" / "issues.jsonl").write_text("{}\n{}\n")
-
-    SiblingRepo(sibling, "sib", ops=_fault_ops()).validate()
 
 
 # --- Phase 10a: install-all.sh ---
@@ -11459,18 +11437,6 @@ def test_run_default_timeout_is_short() -> None:
     default = sig.parameters["timeout"].default
     assert default == timeouts.DEFAULT_RUN
     assert timeouts.DEFAULT_RUN <= 60
-
-
-def test_git_hook_timeout_exceeds_beads_hook_ceiling() -> None:
-    """The hook budget must live above BEADS_HOOK_TIMEOUT (300s), not equal to it.
-
-    A git command that fires a bd hook spends time on git's own I/O
-    (write index, resolve refs, network for push/pull) in addition to the
-    hook. Setting the budget to 300s — the hook's own ceiling — leaves no
-    headroom, and the release aborts the moment the hook uses its full
-    tolerance. A release lost two phases exactly this way.
-    """
-    assert timeouts.GIT_HOOK > 300
 
 
 def _spawned_timeout(

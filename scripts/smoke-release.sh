@@ -131,7 +131,7 @@ PY
 
 # Real operation: scaffold a Python CLI project, then audit and inspect it.
 proj="$work/smoke-demo"
-mkdir -p "$proj/.beads"
+mkdir -p "$proj"
 cd "$proj"
 git init --quiet
 printf '%s\n' '[project]' 'name = "smoke-demo"' 'version = "0.1.0"' \
@@ -158,7 +158,7 @@ set -e
 for check in "CI lint workflow exists" "CI test workflow exists" "CI docs workflow exists" \
     "Linting configured ([tool.ruff])" "Type checking configured ([tool.mypy])" \
     "Type checking configured ([tool.pyright])" "Test config exists ([tool.pytest.ini_options])" \
-    "Beads initialized" "CLAUDE.md exists" ".claude/settings.json exists" \
+    "CLAUDE.md exists" ".claude/settings.json exists" \
     "Standard allow rules present" "Standard deny rules present"; do
     grep -qF "✓ $check" "$work/audit.txt" || { cat "$work/audit.txt"; fail "audit check did not pass: $check"; }
 done
@@ -173,7 +173,7 @@ from packaging.version import Version
 
 expected, path = sys.argv[1:]
 status = json.loads(Path(path).read_text())
-want = {"punt_kit_version": Version(expected), "language": "python", "has_beads": True}
+want = {"punt_kit_version": Version(expected), "language": "python"}
 got = {key: status.get(key) for key in want}
 got["punt_kit_version"] = Version(str(got["punt_kit_version"]))
 if got != want:

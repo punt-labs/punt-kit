@@ -55,7 +55,7 @@ def test_toggle_logs_outcome(
     message = records[0].getMessage()
     assert f"Punt {verb} outcome={outcome}" in message
     assert bool(report.error) == (outcome == "failed")
-    assert f"skill permissions changed={3 if outcome == 'changed' else 0}" in message
+    assert f"skill permissions changed={4 if outcome == 'changed' else 0}" in message
     assert f"activation marker changed={outcome == 'changed'}" in message
     assert f"guide import changed={outcome == 'changed'}" in message
     if outcome == "failed":
@@ -89,7 +89,7 @@ def test_toggle_logs_partial_failure_without_exception_content(
         report = getattr(punt, verb)()
     assert report.error
     assert report.changes
-    assert f"Punt {verb} outcome=failed; skill permissions changed=3" in caplog.text
+    assert f"Punt {verb} outcome=failed; skill permissions changed=4" in caplog.text
     assert "reason=PermissionError" in caplog.text
     assert "private-user-content" not in caplog.text
     assert str(tmp_path) not in caplog.text

@@ -18,11 +18,6 @@ from __future__ import annotations
 # GIT_HOOK whatever it asks for (see ``HookFiringCommand``).
 DEFAULT_RUN = 60
 
-# ``punt repo init``'s ``bd init``: creates a local database and may contact a
-# shared Dolt server. Seconds when healthy; two minutes separates a slow
-# server from a hung one, so ``punt repo init`` never waits forever on it.
-BD_INIT = 120
-
 # uv resolves dependencies, downloads wheels, and may build native bindings.
 # A first-run resolve on a cold cache takes minutes; anything past ten is a
 # wedge, not a slow install.
@@ -35,13 +30,10 @@ UV = 600
 GIT_NETWORK = 300
 
 # git commands that fire a repo hook — checkout, commit, merge, push, pull.
-# Every punt-labs repo installs beads client hooks (post-checkout,
-# pre-commit, post-commit, post-merge, pre-push) that run
-# `bd hooks run <event>` against a networked Dolt server with its own
-# BEADS_HOOK_TIMEOUT default of 300s. Under phase 9 + phase 10 concurrency,
-# several hooks hit Dolt at once and the tail latency runs up against that
-# ceiling. The budget here must live above the hook's own tolerance — not
-# equal to it — because git does its own I/O around the hook (write index,
+# A repo's own hooks (pre-commit and pre-push quality gates, the ethos audit
+# hooks) run inside these commands, and under phase 9 + phase 10 concurrency
+# several run at once. The budget must live above a hook's own runtime, not
+# equal to it, because git does its own I/O around the hook (write index,
 # resolve refs, network for push/pull). Raising the shared metadata
 # default is the wrong lever: 60s is what turns a two-hour hang into a
 # one-minute diagnosis for genuine metadata calls, and must stay that way.

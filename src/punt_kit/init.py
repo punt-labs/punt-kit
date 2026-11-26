@@ -16,7 +16,6 @@ from rich.markup import escape
 from punt_kit.claude_markers import ClaudeMarkers
 from punt_kit.detect import ProjectInfo, detect
 from punt_kit.errors import CommandFailure, ReleaseError
-from punt_kit.init_beads import BeadsInit, BeadsInitError
 from punt_kit.permission_rules import RuleSet, Tier
 from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.text_file import TextFile
@@ -65,7 +64,7 @@ def run_init(path: str, *, language: str | None = None) -> list[str]:
 
     Raises:
         SystemExit: Exit code 1 for a non-directory path, unsupported language,
-            unreadable input file, or beads initialization failure.
+            or unreadable input file.
     """
     try:
         return _init_project(path, language=language)
@@ -103,7 +102,6 @@ def _init_project(path: str, *, language: str | None) -> list[str]:
         f"  Plugin:       {info.is_plugin}\n"
         f"  CI exists:    {info.has_ci}\n"
         f"  CLAUDE.md:    {info.has_claude_md}\n"
-        f"  Beads:        {info.has_beads}\n"
     )
 
     # Read every file init will merge into BEFORE writing any, so a file it
@@ -112,7 +110,6 @@ def _init_project(path: str, *, language: str | None) -> list[str]:
 
     changed = _init_workflows(info)
     changed.extend(_init_python_config(info))
-    beads_failure = _init_beads(info, changed)
     changed.extend(_init_claude_md(info))
     changed.extend(_init_permissions(info))
     changed.extend(_prune_settings_local(info))
@@ -129,27 +126,7 @@ def _init_project(path: str, *, language: str | None) -> list[str]:
         console.print("\n[dim]No files needed updating.[/dim]")
 
     _report_manual_steps()
-    if beads_failure is not None:
-        # Printed when it happened; run_init would only print it a second time.
-        raise CommandFailure(
-            str(beads_failure), {"changes": changed}
-        ) from beads_failure
     return changed
-
-
-def _init_beads(info: ProjectInfo, changed: list[str]) -> BeadsInitError | None:
-    """Run the beads step; return its failure so the other steps still run.
-
-    ``None`` is the documented success: the failure ends the run only after
-    every other step has been given its turn. It is shown now, so a later
-    step that raises cannot hide it.
-    """
-    try:
-        changed.extend(BeadsInit(info).run())
-    except BeadsInitError as exc:
-        console.print(f"[red]Error:[/red] {escape(str(exc))}")
-        return exc
-    return None
 
 
 def _validate_inputs(info: ProjectInfo) -> None:
@@ -433,7 +410,6 @@ def build_standard_permissions(info: ProjectInfo) -> list[str]:
     # path restrictions on edits. Keep both out of committed permissions.
     perms.extend(
         [
-            "Bash(bd:*)",
             "Bash(cat:*)",
             "Bash(chmod +x:*)",
             "Bash(claude mcp:*)",
@@ -553,27 +529,15 @@ def _init_permissions(info: ProjectInfo) -> list[str]:
     permissions["allow"] = allow
 
     # Merge allow: add missing permissions, never remove existing
-    allow_strs = [str(x) for x in allow]
-    added: list[str] = []
-    for perm in standard_perms:
-        if perm not in allow_strs:
-            allow.append(perm)
-            added.append(perm)
+    added = _merge_rules(allow, standard_perms)
 
     # Merge deny: add missing deny rules, never remove existing
-    standard_deny = build_standard_deny_rules()
     deny_raw = permissions.get("deny")
     deny: list[object] = (
         cast("list[object]", deny_raw) if isinstance(deny_raw, list) else []
     )
     permissions["deny"] = deny
-
-    deny_strs = [str(x) for x in deny]
-    added_deny: list[str] = []
-    for rule in standard_deny:
-        if rule not in deny_strs:
-            deny.append(rule)
-            added_deny.append(rule)
+    added_deny = _merge_rules(deny, build_standard_deny_rules())
 
     # Prune rules Claude Code can never match, such as Write(.env) and
     # Write(.envrc): each one warns once per session until it is gone.
@@ -606,6 +570,14 @@ def _init_permissions(info: ProjectInfo) -> list[str]:
         console.print(f"    [dim]dead rule removed:[/dim] {escape(rule)}")
 
     return [rel]
+
+
+def _merge_rules(rules: list[object], wanted: list[str]) -> list[str]:
+    """Append the wanted rules that ``rules`` lacks, keeping the rest; return them."""
+    present = {str(rule) for rule in rules}
+    added = [rule for rule in wanted if rule not in present]
+    rules.extend(added)
+    return added
 
 
 def _prune_dead_rules(permissions: dict[str, object]) -> list[str]:

@@ -71,14 +71,10 @@ class Phase1Preflight:
             ops.fail(f"Must be on main branch (currently on '{branch}')")
         ops.ok("On main branch")
 
-        # Preserve porcelain's leading XY status space so ln[3:] slices the path.
         status = ops.run(["git", "status", "--porcelain"], cwd=str(info.root)).stdout
         dirty_lines: list[str] = []
         untracked_lines: list[str] = []
         for ln in status.splitlines():
-            path = ln[3:] if len(ln) > 3 else ""
-            if path == ".beads" or path.startswith(".beads/"):
-                continue
             if ln.startswith("?? "):
                 untracked_lines.append(ln)
             else:

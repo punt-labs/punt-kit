@@ -43,7 +43,6 @@ class ProjectInfo:
     project_type: str | None = None  # "package", "plugin", "mcp-server", "docs", etc.
     has_ci: bool = False
     has_claude_md: bool = False
-    has_beads: bool = False
     is_mcp_server: bool = False
     is_plugin: bool = False
     pyproject: dict[str, object] | None = None
@@ -164,8 +163,6 @@ def detect(root: Path) -> ProjectInfo:
 
     has_claude_md = (root / "CLAUDE.md").exists()
 
-    has_beads = (root / ".beads").is_dir()
-
     if language is None and project_type is None:
         md_files = list(root.glob("*.md"))
         if md_files:
@@ -207,7 +204,6 @@ def detect(root: Path) -> ProjectInfo:
         project_type=project_type,
         has_ci=has_ci,
         has_claude_md=has_claude_md,
-        has_beads=has_beads,
         is_mcp_server=is_mcp_server,
         is_plugin=is_plugin,
         pyproject=pyproject_data,

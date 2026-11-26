@@ -138,15 +138,6 @@ def test_detect_ci_workflows(tmp_path: Path) -> None:
     assert "lint.yml" in info.workflow_files
 
 
-def test_detect_beads(tmp_path: Path) -> None:
-    """Detect beads directory."""
-    (tmp_path / ".beads").mkdir()
-
-    info = detect(tmp_path)
-
-    assert info.has_beads is True
-
-
 def test_detect_claude_md(tmp_path: Path) -> None:
     """Detect CLAUDE.md."""
     (tmp_path / "CLAUDE.md").write_text("# Agent Instructions")
