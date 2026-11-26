@@ -1,0 +1,53 @@
+{
+  "checks": {
+    "full-gate": {
+      "profile": "linux-worktree-v1",
+      "epoch": "punt-kit-v1",
+      "sources": {"mode": "worktree"},
+      "runtime": {
+        "platforms": {
+          "linux-amd64": {
+            "bundle": "punt-kit-linux-amd64-v1",
+            "sha256": "33e838b8f4f79749eee8abb489f99ac301dc5f06cffb581431a36023595e829f",
+            "url": "https://github.com/punt-labs/punt-kit/releases/download/handoff-runtime-v1/punt-kit-linux-amd64-v1.tar.gz",
+            "path": ["{runtime}/bin", "{runtime}/node/bin", "{runtime}/python/bin"],
+            "env": {
+              "GIT_CONFIG_GLOBAL": "/dev/null",
+              "GIT_CONFIG_NOSYSTEM": "1",
+              "UV_OFFLINE": "1",
+              "UV_LOCKED": "1",
+              "UV_NO_CONFIG": "1",
+              "UV_PYTHON_DOWNLOADS": "never",
+              "UV_PYTHON": "{runtime}/python/bin/python3.13",
+              "UV_PROJECT_ENVIRONMENT": "{scratch}/venv",
+              "UV_CACHE_DIR": "{scratch}/uv-cache",
+              "UV_LINK_MODE": "copy",
+              "RUFF_CACHE_DIR": "{scratch}/ruff-cache",
+              "MYPY_CACHE_DIR": "{scratch}/mypy-cache",
+              "npm_config_cache": "{scratch}/npm-cache",
+              "npm_config_offline": "true",
+              "npm_config_update_notifier": "false",
+              "PYTHONDONTWRITEBYTECODE": "1"
+            }
+          }
+        }
+      },
+      "system": {
+        "tools": [
+          "basename", "bash", "cat", "dirname", "echo", "env", "envsubst", "find",
+          "gettext", "git", "grep", "make", "mkdir", "mktemp", "realpath", "rm",
+          "sed", "sh", "shellcheck", "sleep", "tee", "timeout", "uname"
+        ]
+      },
+      "scratch": {
+        "checkout": [".pytest_cache"],
+        "seed": {
+          "{scratch}/uv-cache": "{runtime}/cache/uv",
+          "{scratch}/npm-cache": "{runtime}/cache/npm"
+        }
+      },
+      "git": {"base_ref": "refs/remotes/origin/main"},
+      "prehydrate": {"run": ["uv", "sync", "--offline", "--locked"]}
+    }
+  }
+}
