@@ -34,9 +34,10 @@
       },
       "system": {
         "tools": [
-          "basename", "bash", "cat", "dirname", "echo", "env", "envsubst", "find",
-          "gettext", "git", "grep", "make", "mkdir", "mktemp", "realpath", "rm",
-          "sed", "sh", "shellcheck", "sleep", "tee", "timeout", "uname"
+          "basename", "bash", "cat", "chmod", "cp", "curl", "dirname", "echo",
+          "env", "envsubst", "find", "gettext", "git", "grep", "gzip", "make",
+          "mkdir", "mktemp", "mv", "python3", "realpath", "rm", "sed", "sh",
+          "sha256sum", "shellcheck", "sleep", "tar", "tee", "timeout", "uname"
         ]
       },
       "scratch": {
