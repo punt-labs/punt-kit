@@ -1,6 +1,6 @@
 # Permissions Standards
 
-**Updated:** 2026-11-26
+**Updated:** 2026-11-14
 
 Rules for Claude Code permission configuration across all Punt Labs projects.
 Defines what agents can do automatically, what requires approval, and what is
@@ -182,6 +182,7 @@ entry. A server registered by hand that no tool owns stays in
 Every project must allow these generic Bash commands:
 
 ```json
+"Bash(bd:*)",
 "Bash(cat:*)",
 "Bash(chmod +x:*)",
 "Bash(claude mcp:*)",
@@ -222,6 +223,7 @@ Projects add their own build tools as needed:
 | Swift | `Bash(xcodebuild:*)`, `Bash(xcodegen:*)`, `Bash(swiftformat:*)`, `Bash(swiftlint:*)` |
 | CLI project | `Bash(<cli-name>-server:*)` when the project declares a `<cli-name>-server` entry point; nothing otherwise. The CLI rule itself is in `<tool> enable`'s set and reaches the tool's own repo the way it reaches every repo: by running `<tool> enable` there. `enable` grants the CLI, not the server binary, so the server rule stays here. |
 
+`Bash(bd:*)` is baseline because `bd` is an external tool with no `enable`.
 `Bash(punt:*)` is baseline because `punt repo init` scaffolds this file and the
 standards tool must run unprompted from the first scaffold; `punt enable`'s
 set (tool-enable-disable.md § 2.10) is its guide import and its
