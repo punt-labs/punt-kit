@@ -15,6 +15,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from punt_kit.audit_github import GithubSettingsAudit
+from punt_kit.audit_guide import PuntGuideAudit
 from punt_kit.audit_layout import LayoutAudit
 from punt_kit.audit_permissions import PermissionsAudit
 from punt_kit.audit_report import (
@@ -102,7 +103,7 @@ def run_audit(path: str, *, options: AuditOptions = _DEFAULTS) -> tuple[int, int
         partial(_check_markdownlint_content, info),
         partial(_check_py_typed, info, fix=options.fix),
         partial(_check_changelog, info, fix=options.fix),
-        partial(_check_punt_guide, info),
+        PuntGuideAudit(info).findings,
         partial(_check_claude_md, info),
         PermissionsAudit(info).findings,
         LayoutAudit(info).findings,
@@ -380,26 +381,6 @@ def _check_changelog(info: ProjectInfo, *, fix: bool) -> list[tuple[str, str, st
         return [(FIXED, "CHANGELOG.md created", "")]
 
     return [(FAIL, "CHANGELOG.md exists", "Missing — run punt repo audit --fix")]
-
-
-_PUNT_GUIDE = ".punt-labs/punt/CLAUDE.md"
-
-
-def _check_punt_guide(info: ProjectInfo) -> list[tuple[str, str, str]]:
-    """Check the Linear workflow guide is deposited and imported by CLAUDE.md."""
-    guide = info.root / _PUNT_GUIDE
-    claude_md = info.root / "CLAUDE.md"
-    is_imported = (
-        claude_md.exists() and f"@{_PUNT_GUIDE}" in TextFile(claude_md).read()
-    )
-    if guide.exists() and is_imported:
-        return [(PASS, "Linear workflow guide imported", _PUNT_GUIDE)]
-    missing = (
-        f"Missing {_PUNT_GUIDE}"
-        if not guide.exists()
-        else f"CLAUDE.md does not import @{_PUNT_GUIDE}"
-    )
-    return [(FAIL, "Linear workflow guide imported", f"{missing} — run punt enable")]
 
 
 def _check_claude_md(info: ProjectInfo) -> list[tuple[str, str, str]]:

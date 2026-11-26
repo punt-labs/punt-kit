@@ -200,6 +200,14 @@ def python_project(root: Path) -> None:
     (root / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
 
 
+def deposit_punt_guide(root: Path) -> None:
+    """Write a CLAUDE.md that imports the deposited Linear workflow guide."""
+    (root / "CLAUDE.md").write_text("# Agent Instructions\n@.punt-labs/punt/CLAUDE.md\n")
+    guide = root / ".punt-labs" / "punt" / "CLAUDE.md"
+    guide.parent.mkdir(parents=True, exist_ok=True)
+    guide.write_text("# Tracking work\n")
+
+
 def make_compliant_python(tmp_path: Path) -> None:
     """Create a fully compliant Python project scaffold."""
     (tmp_path / "pyproject.toml").write_text(

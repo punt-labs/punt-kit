@@ -1049,7 +1049,8 @@ def test_init_never_activates_a_dormant_negation(tmp_path: Path) -> None:
     "stanza", ["/.claude/", ".claude/*", "/.claude/*", "**/.claude/*", ".claude"]
 )
 def test_init_respects_every_claude_stanza_spelling(
-    tmp_path: Path, stanza: str,
+    tmp_path: Path,
+    stanza: str,
 ) -> None:
     """Anchored and globbed forms are stanzas too.
 

@@ -30,9 +30,7 @@ __all__ = ["PUNT_RULES", "PermissionChange", "ProjectPermissions"]
 # The Bash(punt:*) rule belongs to the punt repo init baseline.
 PUNT_RULES: Final[dict[str, tuple[str, ...]]] = {
     "allow": ("Skill(punt:*)",),
-    "ask": tuple(
-        f"Skill(punt:{cmd})" for cmd in ("auto", "reconcile", "issue-review")
-    ),
+    "ask": tuple(f"Skill(punt:{cmd})" for cmd in ("auto", "reconcile", "issue-review")),
 }
 
 _NEW_FILE_MODE: Final = 0o644

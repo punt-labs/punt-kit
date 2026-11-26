@@ -16,6 +16,9 @@ from punt_kit.audit_verdict import FAIL, INFO, PASS
 from punt_kit.detect import detect
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
 from tests.helpers import (
+    deposit_punt_guide as _deposit_punt_guide,
+)
+from tests.helpers import (
     make_compliant_hybrid as _make_compliant_hybrid,
 )
 from tests.helpers import (
@@ -175,7 +178,7 @@ def test_audit_fix_does_not_overwrite_existing(tmp_path: Path) -> None:
 def test_audit_non_python_skips_python_checks(tmp_path: Path) -> None:
     """Audit for non-Python project skips Python-specific checks."""
     (tmp_path / "package.json").write_text('{"name": "test"}')
-    (tmp_path / "CLAUDE.md").write_text("# Agent\n")
+    _deposit_punt_guide(tmp_path)
     (tmp_path / "CHANGELOG.md").write_text("# Changelog\n")
     (tmp_path / "Makefile").write_text(
         ".PHONY: help test lint check format\n\n"
@@ -262,7 +265,7 @@ def _make_compliant_plugin(tmp_path: Path, *, subdir: bool = False) -> Path:
     """
     plugin_root = tmp_path / "plugin" if subdir else tmp_path
     (tmp_path / "README.md").write_text("# Test Plugin\n")
-    (tmp_path / "CLAUDE.md").write_text("# Agent Instructions\n")
+    _deposit_punt_guide(tmp_path)
     (tmp_path / "CHANGELOG.md").write_text("# Changelog\n")
     (tmp_path / ".markdownlint.jsonc").write_text("{}\n")
     (tmp_path / ".markdownlint-cli2.jsonc").write_text("{}\n")
