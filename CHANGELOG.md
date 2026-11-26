@@ -6,9 +6,18 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Add a Linux x86-64 Ethos handoff snapshot profile that runs the unchanged
-  `make check` gate offline with a pinned runtime. The runtime installer
-  previews by default; use `--apply` to download or pass a local archive.
+- Add an optional Linux x86-64 Ethos handoff snapshot profile for the unchanged
+  `make check` gate. The runtime installer previews by default; use `--apply`
+  to download the pinned runtime or pass a local archive.
+
+### Removed
+
+- The vendored ethos registry under `.punt-labs/ethos/` (identities, roles,
+  talents, teams, and the recorded missions), `.punt-labs/ethos.yaml`, and the
+  `mcp__plugin_ethos*` permissions are removed from this repository for now,
+  along with the `CLAUDE.md` import of the ethos guide. The six `gstack-*`
+  agent files under `.claude/agents/` stay: `docs/WORKFLOW.md` names
+  `gstack-qa` as the verification step of the merge gate.
 
 ## [0.20.0] - 2026-11-25
 

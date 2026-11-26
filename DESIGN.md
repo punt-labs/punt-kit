@@ -2657,7 +2657,7 @@ Ethos skips handoff checks, including `files: all`, for a provably read-only
 agent: an unchanged start fingerprint and no own or recent unattributed
 mutating audit entries. Missing or unreadable evidence runs the gate.
 Generated agents remain owned by ethos; seed the full bundle before regeneration.
-See [agent quality checks](docs/advisory-checks.md) for prerequisites and reproduction.
+The check set and its prerequisites document, `docs/advisory-checks.md`, were removed with ethos from this repository; they remain in git history.
 
 ### Rejected Alternatives
 

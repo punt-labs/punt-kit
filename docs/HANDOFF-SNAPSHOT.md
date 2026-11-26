@@ -1,10 +1,15 @@
 # Ethos handoff snapshot
 
-The punt-kit handoff still runs the full `make check` gate. The profile in
-`.punt-labs/ethos/checks/snapshots/punt-kit.yaml` lets a compatible Ethos runner
-execute it against a read-only copy of the worktree. The runtime supports Linux
-x86-64 only; on other platforms run the explicit gate. Nothing runs against the
-live checkout as a fallback for a deferred snapshot.
+The required punt-kit gate is still `make check`. This repository does not
+enable Ethos or ship its base check set. To use the optional snapshot profile,
+configure a `punt-kit` check set whose handoff check `full-gate` runs
+`make check`. Place the supplied `snapshots/punt-kit.yaml` beside that check
+set in the same checks directory. A compatible Ethos runner then runs the full
+gate against a read-only copy of the worktree.
+
+The runtime supports Linux x86-64 only. On other platforms, run the explicit
+gate. Nothing runs against the live checkout as a fallback for a deferred
+snapshot.
 
 On Linux x86-64, install Git, Make, Bash, ShellCheck, gettext, Python 3,
 curl, and GNU coreutils, then install the pinned runtime:
