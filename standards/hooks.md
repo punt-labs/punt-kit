@@ -397,7 +397,8 @@ These hooks observe state and inject context. They must never block.
 | Event | Matcher | Pattern | Example |
 |-------|---------|---------|---------|
 | SessionStart | * | Load state, inject guidance | Wall text, collision detection, project standards |
-| PostToolUse | Bash | Classify output, accumulate signals | Vibe signals, plan hints, issue claim detection |
+| PostToolUse | Bash | Classify output, accumulate signals | Vibe signals, plan hints |
+| PostToolUse | `mcp__linear__save_issue` | Detect an issue claim from the tool input (status In Progress) | Issue claim detection |
 | PostToolUse | WebFetch | Capture side effect | Auto-ingest fetched URLs into knowledge base |
 | PostToolUse | Edit\|Write | Inject relevant standards | Changelog format, Z spec conventions |
 | PostToolUse | MCP tools | Format output | Two-channel display (suppress-output.sh) |

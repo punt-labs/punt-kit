@@ -22,11 +22,15 @@ steps:
     description: Find the highest-priority available Linear issue
     type: llm
     context: |
-      Read `.punt-labs/punt/CLAUDE.md` for the repo's label. List the
-      repo's open issues with the Linear MCP `list_issues`, filtered by
-      team `PL` and the repo label `repo:<name>`, status not Done or
-      Canceled. Skip issues labelled `deferred` and issues with an open
-      blocker.
+      Read `.punt-labs/punt/CLAUDE.md` for the repo's `repo:<name>`
+      label (`repo:pkit` for punt-kit). List the repo's open issues with
+      the Linear MCP `list_issues`, filtered by team `PL` and that
+      label, status not Done or Canceled. The list is paginated: while
+      the result says `hasNextPage`, call `list_issues` again with the
+      returned cursor, and stop only when `hasNextPage` is false. Then
+      drop issues that are not available: labelled `deferred`, with an
+      open blocker, already In Progress, or assigned to someone else.
+      Offer only what is left to the next step.
 
   - id: claim-issue
     description: Pick and claim an issue
@@ -36,8 +40,10 @@ steps:
       issues share the same priority, ask the user.
 
       Run `get_issue` to understand the issue, and `list_comments` for its
-      discussion. Then claim it: `save_issue` with its `id` and status
-      In Progress.
+      discussion. Check again that it is not In Progress or assigned to
+      someone else. Then claim it: `save_issue` with its `id` and status
+      In Progress; the issue keeps its `repo:<name>` label (never replace
+      the label set; use `addLabels` to change labels).
 
       If the list is empty, report "No Linear issues available" and stop.
 
@@ -156,6 +162,7 @@ steps:
     description: Mark the issue Done and continue
     type: llm
     context: |
-      Set the issue's status to Done with `save_issue`. Do not ask "Ready
+      Set the issue's status to Done with `save_issue` (its `id` and
+      status only; the `repo:<name>` label stays). Do not ask "Ready
       for the next issue?" — the loop
       continues automatically. The user will interrupt if they want to stop.

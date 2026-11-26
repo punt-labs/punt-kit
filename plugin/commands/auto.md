@@ -21,6 +21,10 @@ allowed-tools:
   - "Bash(grep:*)"
   - "Bash(find:*)"
   - "Bash(mkdir:*)"
+  - "mcp__linear__list_issues"
+  - "mcp__linear__get_issue"
+  - "mcp__linear__list_comments"
+  - "mcp__linear__save_issue"
   - "mcp__github__*"
   - "mcp__plugin_github_github__*"
 ---

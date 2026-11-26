@@ -9,14 +9,14 @@ allowed-tools:
   - "mcp__linear__get_issue"
   - "mcp__linear__list_comments"
   - "mcp__linear__list_issue_labels"
-  - "mcp__linear__save_issue"
-  - "mcp__linear__save_comment"
 ---
 
 Load and execute the `issue-review` skill
 (`${CLAUDE_PLUGIN_ROOT}/skills/issue-review/SKILL.md`).
 
 Read the skill file first, then run it against the current repo (or the
-repo named in the argument, if given).
+repo named in the argument, if given). The skill proposes changes and
+asks before any Linear write; this command does not preapprove
+`save_issue`.
 
 Arguments: $ARGUMENTS

@@ -14,10 +14,12 @@ fixed in code here, only the issues describing the work get made accurate,
 clear, and correctly prioritized (or canceled if the work they describe is
 no longer real).
 
-**No per-issue confirmation.** The rubric makes the call on each issue
-autonomously. This skill's job is to enumerate, apply the rubric,
-reconcile, and produce one final report — not to relay N individual
-questions to the user.
+**No per-issue questions, one approval at the end.** The rubric makes the
+call on each issue autonomously and records the change it proposes. This
+skill's job is to enumerate, apply the rubric, reconcile, and produce one
+final report. It makes no `save_issue` or comment call until the operator
+has read the report and approved the batch (all of it, or a named
+subset). Read-only tools are all it uses before then.
 
 ## Usage
 
@@ -57,9 +59,10 @@ Progress, and blocked issues all need review:
 list_issues(team="PL", label="repo:<name>", includeArchived=false)
 ```
 
-Drop issues whose status type is completed or canceled. Page with the
-returned cursor until `hasNextPage` is false — the first page is not the
-backlog. Sort oldest first by creation date: age is a priority signal per
+`repo:<name>` is the repo's label from Step 1; every `list_issues` and
+`save_issue` call in this skill carries it. Drop issues whose status type
+is completed or canceled. Page with the returned cursor until
+`hasNextPage` is false — the first page is not the backlog. Sort oldest first by creation date: age is a priority signal per
 the rubric, and reviewing oldest-first surfaces stale or mis-prioritized
 issues early, before review fatigue sets in.
 
@@ -118,7 +121,7 @@ Step 2, in order:
 Do not stop between issues to ask whether to proceed, whether a
 disposition was correct, or whether to continue — that defeats the purpose
 of an autonomous full-backlog pass. The only case the rubric surfaces
-mid-run is `needs-human-review`, and that is a label + an issue comment +
+mid-run is `needs-human-review`, and that is a proposed label + an issue comment +
 a line in the final report, not a blocking question.
 
 **Sequential, one issue at a time, in this same session.** No fanning to
@@ -137,6 +140,9 @@ appear in a *future work* batching plan:
 ```text
 list_issues(team="PL", label="repo:<name>")
 ```
+
+Page with the returned cursor until `hasNextPage` is false; a grouping
+built from the first page omits issues.
 
 Group by `theme:` label; within each theme, sort by priority. This is the
 artifact that makes the audit useful beyond "the backlog is now tidy" —
@@ -202,6 +208,11 @@ with no changes, which get their own (typically short) table:
 The batching plan includes every surviving issue (Rewritten + Confirmed
 good + Needs human review) — canceled issues are gone from future work by
 definition and don't appear there.
+
+End the report by asking once: apply these changes to Linear? Only after
+an explicit yes (or a named subset) does the skill call `save_issue` and
+add comments, each carrying the repo's `repo:<name>` label (use
+`addLabels`, never `labels`). Without approval no Linear write happens.
 
 This report is the deliverable. Nothing further happens automatically —
 batching the actual fix work into missions and PRs is a separate, later

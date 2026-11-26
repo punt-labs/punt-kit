@@ -3,7 +3,10 @@
 The six-step rubric applied to each Linear issue in `issue-review`'s Step 4.
 Referenced once per audit run; apply the whole rubric per issue, in order,
 in the same session running the outer skill. Every write below is a Linear
-write on team `PL`, scoped by the repo's `repo:<name>` label.
+write on team `PL`, scoped by the repo's `repo:<name>` label. **Writes
+are proposals:** the audit collects each intended `save_issue` or
+comment, shows the batch in the final report, and asks the operator before
+sending any of them.
 
 Inputs the outer loop passes for each issue:
 
@@ -67,16 +70,21 @@ first, since an invalid issue doesn't need a clarity fix at all.
 ## Step 3: Assess validity — verify, don't guess
 
 If the issue makes a factual claim about the code (a bug exists, a feature
-is missing, a file behaves a certain way), **check it directly** — use the
-Grep tool, or `git grep` (works from anywhere inside the repo, unlike a
+is missing, a file behaves a certain way), **check it against current
+`origin/main`, never the checked-out branch** — a feature branch may
+carry unmerged changes that make a bug look fixed or a feature look
+present. Run `git -C "${REPO:-.}" fetch origin` once per audit, then read
+files with `git show origin/main:<path>` and search with `git grep` on
+`origin/main` (the Grep tool searches the working tree, so use it only
+when the working tree is `main` at `origin/main`). Use `git grep` (works from anywhere inside the repo, unlike a
 raw `grep` restricted to guessed paths like `src/`/`tests/`, which won't
 exist or won't be the right layout in every repo):
 
 ```bash
-git -C "${REPO:-.}" grep -n "<the specific thing described>"
+git -C "${REPO:-.}" grep -n "<the specific thing described>" origin/main
 ```
 
-Read the actual file(s) involved. Run the actual command described, if
+Read the actual file(s) involved, at `origin/main`. Run the actual command described, if
 it's cheap and safe to do so (`--dry-run`, `--collect-only`, a read-only
 query). Do not cancel an issue on a hunch that it's "probably fixed by
 now" — either find the code that proves it's resolved, or find the code
