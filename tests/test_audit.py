@@ -95,6 +95,20 @@ def test_audit_does_not_flag_a_dormant_punt(
     assert f"✗ {_GUIDE_LABEL}" not in capsys.readouterr().out
 
 
+def test_audit_does_not_treat_a_directory_as_the_enabled_marker(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _make_compliant_python(tmp_path)
+    marker = tmp_path / ".punt-labs" / "punt" / "enabled"
+    marker.unlink()
+    marker.mkdir()
+    (tmp_path / "CLAUDE.md").write_text("# Agent Instructions\n")
+
+    run_audit(str(tmp_path))
+
+    assert f"✗ {_GUIDE_LABEL}" not in capsys.readouterr().out
+
+
 def test_audit_fails_an_import_left_behind_when_punt_is_not_enabled(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
