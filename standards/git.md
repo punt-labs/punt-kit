@@ -1,6 +1,6 @@
 # Git Standard
 
-**Introduced:** 2026-07-27
+**Introduced:** 2026-07-27 · **Updated:** 2026-11-26
 
 The mechanical git operations between starting work and pushing it: which
 branch a commit lands on, how a branch's history is protected once it is

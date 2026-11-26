@@ -1,5 +1,7 @@
 # Naming and Versioning Standards
 
+**Updated:** 2026-11-26
+
 How Punt Labs projects are named, versioned, and identified.
 
 ---

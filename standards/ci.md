@@ -1,6 +1,6 @@
 # CI Standards
 
-**Introduced:** 2026-08-30
+**Introduced:** 2026-08-30 · **Updated:** 2026-11-26
 
 What continuous integration must prove before a merge, for every Punt Labs
 repository. The floor is every supported OS; the rest is grounded in the published CI literature, cited inline. Where common practice
