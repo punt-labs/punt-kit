@@ -1,6 +1,5 @@
 """Legacy CLAUDE.md marker migration through punt repo init."""
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -11,6 +10,7 @@ from punt_kit.claude_markers import ClaudeMarkers
 from punt_kit.claude_md import ClaudeMdImport
 from punt_kit.init import run_init
 from punt_kit.phases.shared.text_file import TextFile
+
 
 @pytest.mark.parametrize("eol", ["\n", "\r\n"])
 @pytest.mark.parametrize("bom", ["", "\ufeff"])

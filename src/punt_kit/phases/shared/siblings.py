@@ -153,7 +153,8 @@ class SiblingRepo:
     ) -> None:
         """Restore propagation-owned changes without touching unrelated edits.
 
-        Leave the checkout alone if any other tracked path is dirty. An unreadable status produces a notice, not a reset.
+        Leave the checkout alone if any other tracked path is dirty. An
+        unreadable status produces a notice, not a reset.
 
         Args:
             owned: Override owned paths; an empty tuple or ``None`` uses the default.

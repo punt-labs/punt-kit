@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import json
-import shutil
 import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
