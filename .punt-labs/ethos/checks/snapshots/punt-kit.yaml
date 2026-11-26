@@ -8,7 +8,7 @@
         "platforms": {
           "linux-amd64": {
             "bundle": "punt-kit-linux-amd64-v1",
-            "sha256": "33e838b8f4f79749eee8abb489f99ac301dc5f06cffb581431a36023595e829f",
+            "sha256": "486851cac19d76974cb6e7bece085d0bcbb4c3b7bdbbec4b232b843e7d93b563",
             "url": "https://github.com/punt-labs/punt-kit/releases/download/handoff-runtime-v1/punt-kit-linux-amd64-v1.tar.gz",
             "path": ["{runtime}/bin", "{runtime}/node/bin", "{runtime}/python/bin"],
             "env": {
