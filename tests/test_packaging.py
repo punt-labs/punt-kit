@@ -17,7 +17,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # Top-level paths that must never reach a published artifact: local agent
 # state, editor config, internal tracker content, and the environment file.
 NEVER_SHIP = (
-    ".beads",
     ".claude",
     ".CLAUDE.md.lock",
     ".envrc",

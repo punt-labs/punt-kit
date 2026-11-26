@@ -11,14 +11,6 @@ from punt_kit.claude_markers import ClaudeMarkers
 from punt_kit.claude_md import ClaudeMdImport
 from punt_kit.init import run_init
 from punt_kit.phases.shared.text_file import TextFile
-from tests.helpers import no_bd
-
-
-@pytest.fixture(autouse=True)
-def _without_bd(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep init from attempting to initialize the host's issue tracker."""
-    monkeypatch.setattr(shutil, "which", no_bd)
-
 
 @pytest.mark.parametrize("eol", ["\n", "\r\n"])
 @pytest.mark.parametrize("bom", ["", "\ufeff"])

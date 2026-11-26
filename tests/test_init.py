@@ -18,9 +18,6 @@ from tests.helpers import (
     flat,
 )
 from tests.helpers import (
-    no_bd as _no_bd,
-)
-from tests.helpers import (
     python_project as _python_project,
 )
 
@@ -30,12 +27,6 @@ if TYPE_CHECKING:
     from punt_kit.detect import ProjectInfo
 
 _LOCK_LINE = "*.punt-import.lock\n"
-
-
-@pytest.fixture(autouse=True)
-def _without_bd(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fail any test that attempts to run the host's `bd init`."""
-    monkeypatch.setattr(shutil, "which", _no_bd)
 
 
 def test_init_creates_docs_workflow(tmp_path: Path) -> None:
@@ -272,7 +263,7 @@ def test_init_creates_permissions_python(tmp_path: Path) -> None:
     # Base permissions
     assert "Bash(git:*)" in allow
     assert "Bash(gh:*)" in allow
-    assert "Bash(bd:*)" in allow
+    assert "Bash(bd:*)" not in allow
     assert "Bash(punt:*)" in allow
 
     # Python-specific
@@ -973,7 +964,7 @@ def test_init_tolerates_malformed_settings_local(tmp_path: Path) -> None:
 
 
 def test_init_leaves_a_foreign_claude_stanza_alone(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """A stanza punt did not write is never appended to.
 
@@ -987,7 +978,6 @@ def test_init_leaves_a_foreign_claude_stanza_alone(
     binary's own ``init`` happens to append — that behavior is bd's to test,
     and drifts independently of this repo's release.
     """
-    monkeypatch.setattr(shutil, "which", _no_bd)
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "t"\n')
     gitignore = tmp_path / ".gitignore"
     original = "# deliberate stanza\n.claude/*\n!.claude/settings.json\n"
@@ -1060,7 +1050,7 @@ def test_init_never_activates_a_dormant_negation(tmp_path: Path) -> None:
     "stanza", ["/.claude/", ".claude/*", "/.claude/*", "**/.claude/*", ".claude"]
 )
 def test_init_respects_every_claude_stanza_spelling(
-    tmp_path: Path, stanza: str, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, stanza: str,
 ) -> None:
     """Anchored and globbed forms are stanzas too.
 
@@ -1068,9 +1058,7 @@ def test_init_respects_every_claude_stanza_spelling(
     unanchored block appended, broadening the ignore from root-only to any
     depth — the same invariant violation this guard exists to prevent.
 
-    ``bd`` is disabled — see ``_no_bd``.
     """
-    monkeypatch.setattr(shutil, "which", _no_bd)
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "t"\n')
     gitignore = tmp_path / ".gitignore"
     original = stanza + "\n"
@@ -1172,13 +1160,13 @@ def test_build_standard_permissions_raises_on_an_unknown_language() -> None:
 
 
 def test_baseline_bash_rules_are_present_for_every_project() -> None:
-    """bd and punt are external tools with no enable, so they stay baseline."""
+    """punt has no enable, so it stays baseline; bd is not a baseline tool."""
     from punt_kit.detect import ProjectInfo
     from punt_kit.init import build_standard_permissions
 
     perms = build_standard_permissions(ProjectInfo(root=Path("/nonexistent")))
 
-    assert "Bash(bd:*)" in perms
+    assert "Bash(bd:*)" not in perms
     assert "Bash(punt:*)" in perms
     assert len(perms) == len(set(perms))
 
@@ -1202,9 +1190,8 @@ def test_init_python_config_reads_a_pyproject_that_starts_with_a_bom(
 
 
 def test_init_keeps_a_settings_json_that_starts_with_a_bom_intact(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(shutil, "which", _no_bd)
     _python_project(tmp_path)
     settings = tmp_path / ".claude" / "settings.json"
     settings.parent.mkdir()
@@ -1227,11 +1214,9 @@ def test_init_keeps_a_settings_json_that_starts_with_a_bom_intact(
 @pytest.mark.parametrize("body", ["{not json", "[1, 2]", "\xff\xfe"])
 def test_init_refuses_to_replace_a_settings_json_it_cannot_read(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     body: str,
 ) -> None:
-    monkeypatch.setattr(shutil, "which", _no_bd)
     _python_project(tmp_path)
     settings = tmp_path / ".claude" / "settings.json"
     settings.parent.mkdir()
@@ -1247,10 +1232,8 @@ def test_init_refuses_to_replace_a_settings_json_it_cannot_read(
 
 def test_init_fails_on_an_unparseable_plugin_manifest(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr(shutil, "which", _no_bd)
     (tmp_path / ".claude-plugin").mkdir()
     (tmp_path / ".claude-plugin" / "plugin.json").write_text("{broken")
 
@@ -1264,10 +1247,8 @@ def test_init_fails_on_an_unparseable_plugin_manifest(
 
 def test_init_says_when_it_leaves_an_unreadable_settings_local_alone(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr(shutil, "which", _no_bd)
     _python_project(tmp_path)
     local = tmp_path / ".claude" / "settings.local.json"
     local.parent.mkdir()
@@ -1350,10 +1331,8 @@ def test_init_refuses_to_rewrite_a_pyproject_it_cannot_extend_in_place(
 
 def test_init_validates_settings_json_before_writing_anything(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr(shutil, "which", _no_bd)
     _python_project(tmp_path)
     before = (tmp_path / "pyproject.toml").read_bytes()
     settings = tmp_path / ".claude" / "settings.json"
@@ -1374,9 +1353,8 @@ def test_init_validates_settings_json_before_writing_anything(
 
 @pytest.mark.parametrize("name", ["CLAUDE.md", ".gitignore"])
 def test_init_validates_every_file_it_will_merge_before_writing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+    tmp_path: Path, name: str
 ) -> None:
-    monkeypatch.setattr(shutil, "which", _no_bd)
     _python_project(tmp_path)
     (tmp_path / name).write_bytes(b"caf\xe9")
 
@@ -1406,9 +1384,8 @@ def test_init_fails_on_a_malformed_pyproject(
 
 
 def test_init_appends_to_a_crlf_claude_md_with_a_bom(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(shutil, "which", _no_bd)
     _python_project(tmp_path)
     original = "\ufeff# Project\r\n\r\nSome notes.\r\n"
     (tmp_path / "CLAUDE.md").write_bytes(original.encode())
@@ -1423,9 +1400,8 @@ def test_init_appends_to_a_crlf_claude_md_with_a_bom(
 
 
 def test_init_keeps_a_claude_md_without_a_final_newline_that_way(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(shutil, "which", _no_bd)
     _python_project(tmp_path)
     (tmp_path / "CLAUDE.md").write_bytes(b"# Project")
 
@@ -1436,9 +1412,8 @@ def test_init_keeps_a_claude_md_without_a_final_newline_that_way(
 
 @pytest.mark.parametrize("existing", ["dist/\r\n.claude/\r\n", "dist/\r\n"])
 def test_init_edits_a_crlf_gitignore_with_a_bom_in_its_own_style(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing: str
+    tmp_path: Path, existing: str
 ) -> None:
-    monkeypatch.setattr(shutil, "which", _no_bd)
     _python_project(tmp_path)
     (tmp_path / ".gitignore").write_bytes(("\ufeff" + existing).encode())
 
@@ -1467,10 +1442,8 @@ def test_init_names_a_path_with_markup_that_is_not_a_directory(
 
 def test_init_shows_a_project_name_with_markup_literally(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr(shutil, "which", _no_bd)
     # A name cannot hold "/", so a closing tag is out; a style tag still vanishes.
     root = tmp_path / "p[bold]x"
     root.mkdir()
@@ -1486,7 +1459,6 @@ def test_init_shows_an_invalid_language_choice_with_markup_literally(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr(shutil, "which", _no_bd)
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("sys.stderr.isatty", lambda: True)
     monkeypatch.setenv("NO_COLOR", "1")
@@ -1513,11 +1485,9 @@ def test_init_shows_an_unsupported_language_with_markup_literally(
 @pytest.mark.parametrize("name", ["settings.json", "settings.local.json"])
 def test_init_shows_a_removed_dead_rule_with_markup_literally(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     name: str,
 ) -> None:
-    monkeypatch.setattr(shutil, "which", _no_bd)
     _python_project(tmp_path)
     settings = tmp_path / ".claude" / name
     settings.parent.mkdir()
@@ -1530,9 +1500,8 @@ def test_init_shows_a_removed_dead_rule_with_markup_literally(
 
 
 def test_init_is_not_blocked_by_an_unrelated_unreadable_workflow(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(shutil, "which", _no_bd)
     _python_project(tmp_path)
     workflows = tmp_path / ".github" / "workflows"
     workflows.mkdir(parents=True)
@@ -1544,9 +1513,8 @@ def test_init_is_not_blocked_by_an_unrelated_unreadable_workflow(
 
 
 def test_init_still_refuses_an_unreadable_workflow_it_would_merge(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(shutil, "which", _no_bd)
     _python_project(tmp_path)
     workflows = tmp_path / ".github" / "workflows"
     workflows.mkdir(parents=True)

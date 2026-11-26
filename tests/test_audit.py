@@ -68,7 +68,7 @@ def test_audit_fix_creates_markdownlint(tmp_path: Path) -> None:
 
     assert (tmp_path / ".markdownlint-cli2.jsonc").exists()
     cli2_content = (tmp_path / ".markdownlint-cli2.jsonc").read_text()
-    assert ".beads/" in cli2_content
+    assert ".beads/" not in cli2_content
 
 
 def test_audit_fix_creates_py_typed(tmp_path: Path) -> None:
@@ -148,7 +148,6 @@ def test_audit_non_python_skips_python_checks(tmp_path: Path) -> None:
         "format: ## Format\n"
         "\tnpx prettier --write .\n"
     )
-    (tmp_path / ".beads").mkdir()
     (tmp_path / ".markdownlint.jsonc").write_text("{}\n")
     (tmp_path / ".markdownlint-cli2.jsonc").write_text("{}\n")
     workflows = tmp_path / ".github" / "workflows"
@@ -224,7 +223,6 @@ def _make_compliant_plugin(tmp_path: Path, *, subdir: bool = False) -> Path:
     (tmp_path / "README.md").write_text("# Test Plugin\n")
     (tmp_path / "CLAUDE.md").write_text("# Agent Instructions\n")
     (tmp_path / "CHANGELOG.md").write_text("# Changelog\n")
-    (tmp_path / ".beads").mkdir()
     (tmp_path / ".markdownlint.jsonc").write_text("{}\n")
     (tmp_path / ".markdownlint-cli2.jsonc").write_text("{}\n")
     workflows = tmp_path / ".github" / "workflows"

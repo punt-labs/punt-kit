@@ -197,25 +197,6 @@ def project_with_origin(tmp_path: Path) -> ProjectInfo:
     return detect(root)
 
 
-def no_bd(
-    cmd: str, mode: int = os.F_OK | os.X_OK, path: str | None = None
-) -> str | None:
-    """A ``shutil.which`` stand-in reporting only ``bd`` as not installed.
-
-    Tests asserting exact post-``run_init`` file content must not depend on
-    whatever gitignore patterns the locally installed ``bd`` binary's own
-    ``init`` appends — that behavior belongs to bd, and drifts independently
-    of this repo's release. Every other lookup delegates to the real
-    ``shutil.which`` (signature mirrored exactly, not ``*args``/``**kwargs``,
-    so a call passing ``mode``/``path`` type-checks and behaves identically
-    to the unpatched function) — a blanket ``None`` for every command would
-    silently disable other ``which()`` lookups a future call site adds.
-    """
-    if cmd == "bd":
-        return None
-    return real_which(cmd, mode, path)
-
-
 def python_project(root: Path) -> None:
     (root / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
 
@@ -249,7 +230,6 @@ def make_compliant_python(tmp_path: Path) -> None:
         "\tuv run ruff format .\n"
         "\tuv run ruff check --fix .\n"
     )
-    (tmp_path / ".beads").mkdir()
     (tmp_path / ".markdownlint.jsonc").write_text("{}\n")
     (tmp_path / ".markdownlint-cli2.jsonc").write_text("{}\n")
     src_pkg = tmp_path / "src" / "test_pkg"

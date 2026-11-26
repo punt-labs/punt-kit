@@ -87,8 +87,7 @@ class Phase4ReleasePr:
                         cwd=str(root),
                         capture=False,
                         check=False,
-                        # The script commits and runs hooks, including networked bd
-                        # hooks.
+                        # The script commits and runs git hooks.
                         timeout=GIT_HOOK,
                     )
                     if swap_result.returncode != 0:
