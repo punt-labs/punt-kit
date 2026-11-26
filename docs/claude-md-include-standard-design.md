@@ -189,7 +189,7 @@ scope).** It is the tool's agent-facing manual — how an agent or user *drives*
 the tool: slash commands, auto-behaviors, tips, gotchas. It is not the tool
 repo's developer `CLAUDE.md` and not a reference dump. Precedent: vox's installed
 `~/.punt-labs/vox/CLAUDE.md`, whose opening line is "how an *agent* drives vox —
-not how to develop vox itself," and the beads `AGENTS.md` concept.
+not how to develop vox itself,".
 
 The doc is **static content shipped with the tool**. It needs no per-repo
 localization or rendering — the same guide is deposited everywhere. How the tool
@@ -318,7 +318,7 @@ the `punt` CLI: `init`, `audit`, `reconcile`, and so on) — and adds
 static user-guide doc every tool ships (2.5), not a per-repo rendered file.
 
 `punt`'s deposited guide is **not** the new home for the four per-repo sections
-the retired `punt auto claude` target rendered (quality gates, beads, standards
+the retired `punt auto claude` target rendered (quality gates, issue tracking, standards
 references, available tooling). Those were repo-specific dev-process content, not
 a tool user guide; their disposition is out of scope for this standard (see the
 open issue in section 8).
@@ -383,7 +383,7 @@ gap without a compat shim — but the migration must **never delete live config*
 | Sentinel-cum-config — a marker file that also holds live settings (roster, credentials, db name) | `.quarry.toml` | **Migrated, never deleted with content inside**: the tool either moves the settings into its owned location (e.g. `.punt-labs/<tool>/config.*`) and then removes the now-empty marker, or leaves the file in place and simply stops treating it as the presence signal. The tool owning the file decides which; neither path destroys live config. |
 
 This reconciles with § 2.13 and the distribution.md change list, which keep the
-tool's repo **config** file (`.beads/`, `.quarry.toml`, `.biff` when it carries
+tool's repo **config** file (`.quarry.toml`, `.biff` when it carries
 settings) as `init`'s artifact. Enablement stops *reading that file as the
 presence marker*; it does not claim ownership of the config, and it never deletes
 a file that still holds settings.
@@ -400,8 +400,6 @@ a file that still holds settings.
   as the tool releases that perform the migration, so no peer starts checking the
   new marker before the tools that write it have shipped. The § 7 change list
   records this ordering dependency.
-- **`.beads/` needs no migration** — it is already a directory-form marker, not a
-  dotfile, and is unaffected.
 
 ### 2.13 `enable` versus `init`
 
@@ -413,7 +411,7 @@ name). `enable` and `init` are **distinct roles**, not duplicates:
 | Verb | Job | Writes |
 |------|-----|--------|
 | `enable` / `disable` | Turn CLAUDE.md guidance composition and hooks on/off in this repo | `.punt-labs/<tool>/` (guide + `enabled` marker), the import line, additive `.claude/settings.json` entries |
-| `init` | Create and populate the tool's repo config/state | The tool's repo config file (`.biff`, `.quarry.toml`, `.beads/`) |
+| `init` | Create and populate the tool's repo config/state | The tool's repo config file (`.biff`, `.quarry.toml`) |
 
 The repo config file is **no longer the enabled signal** — the `enabled`
 marker (2.7) is. A tool with both verbs runs `init` to configure and `enable` to
@@ -575,7 +573,7 @@ tool may use both.
 
 **Settled by operator ruling: removed, not deprecated.** The `punt auto claude`
 target and the `CLAUDE_SECTIONS` registry are deleted; the four managed sections
-(quality-gates, beads, standards-references, available-tooling) stop being
+(quality-gates, issue-tracking, standards-references, available-tooling) stop being
 rendered into any user-owned `CLAUDE.md`. `punt` becomes a tool following the
 convention (2.10) — but its deposited `.punt-labs/punt/CLAUDE.md` is punt's
 static user guide, **not** the new home for that per-repo dev-process content.
@@ -695,8 +693,8 @@ below; the sweep must also catch any others (e.g. `readme.md`, `workflow.md`,
   marker, import line, hooks); `init` keeps only its distinct role of creating and
   populating the tool's repo config file. State they are distinct verbs, not
   duplicates, so the corpus does not ship two overlapping repo-setup commands.
-- § Installation Scope → Per-repo config files table (`.biff`, `.quarry.toml`,
-  `.beads/`): note the enabled signal is the `.punt-labs/<tool>/enabled` marker,
+- § Installation Scope → Per-repo config files table (`.biff`, `.quarry.toml`):
+  note the enabled signal is the `.punt-labs/<tool>/enabled` marker,
   not the config file; the config files remain `init`'s artifacts and are **not
   deleted** by the sentinel migration (§ 2.12) — enablement stops reading them as
   presence markers, nothing more. Reconcile with filesystem.md and integration.md.
@@ -721,8 +719,7 @@ below; the sweep must also catch any others (e.g. `readme.md`, `workflow.md`,
 - § L0 Presence (lines 49–72) normatively defines the per-tool presence sentinels
   (`.biff`, `.vox/config.md`, `.lux/config.md`, `.quarry.toml`). Rewrite the L0
   presence check and its table to the new marker: presence/enablement is
-  `.punt-labs/<tool>/enabled` (the `.beads/` directory row is the closest existing
-  template for a directory-based marker). Update the `has_biff()` example to test
+  `.punt-labs/<tool>/enabled`. Update the `has_biff()` example to test
   the marker path, and cross-reference `tool-enable-disable.md`. Keep the L0 rule that
   presence checks are pure path-existence tests that fail silent when absent.
   Note that several of these sentinels (`.quarry.toml`, `.vox/config.md`) also
@@ -840,7 +837,7 @@ folded into the design above.
 ## Open issue for the leader (not a design decision)
 
 Removing `punt auto claude` drops the four per-repo rendered sections
-(quality-gates, beads, standards-references, available-tooling) from repo
+(quality-gates, issue-tracking, standards-references, available-tooling) from repo
 `CLAUDE.md` files. Per the operator ruling, their new home is out of scope for
 this standard, and punt's user guide is not it. If that content is still wanted
 per-repo, it needs a separate decision and vehicle — e.g. `/punt:init`

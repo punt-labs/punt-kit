@@ -15,9 +15,9 @@ Three systems compete to control the development flow:
 
 1. **CLAUDE.md lifecycle** — 27 numbered steps the model is supposed to internalize. Works after fresh load, degrades after compaction. No hard gates — the model can skip steps. No delegation structure — one agent does everything.
 
-2. **`/feature-dev`** (Anthropic) — 7-phase prompt-driven state machine with hard gates. Reliable but generic: no beads, no biff, no standards enforcement, no shipping pipeline. Stops too often (user gates at phases 3, 4, 5, 6).
+2. **`/feature-dev`** (Anthropic) — 7-phase prompt-driven state machine with hard gates. Reliable but generic: no issues, no biff, no standards enforcement, no shipping pipeline. Stops too often (user gates at phases 3, 4, 5, 6).
 
-3. **`/punt:auto autopilot`** — bead-driven loop with 15 LLM steps. Right intent but every step is `type: llm` with loose guidance. No specialist delegation, no parallel agents, no competing architectures. No demo step — features ship without being shown working. The model is still doing everything.
+3. **`/punt:auto autopilot`** — issue-driven loop with 15 LLM steps. Right intent but every step is `type: llm` with loose guidance. No specialist delegation, no parallel agents, no competing architectures. No demo step — features ship without being shown working. The model is still doing everything.
 
 None of these achieve what we need: a reliable, ecosystem-aware, team-structured workflow that ships code with minimal user intervention.
 
@@ -35,13 +35,13 @@ A **playbook** (`dev.yaml`) that encodes the Punt Labs lifecycle as a state mach
 
 3. **Postconditions are truth.** Every phase has a machine-verifiable postcondition. `make check` exit code, `git log` output, PR merge status, `/z-spec:check` pass. Not "the model thinks it's done."
 
-4. **Ecosystem integration is built in.** Beads for tracking. Biff for coordination. Quarry for prior knowledge. Z-spec for formal specification. Beadle for recap. Standards for quality. These aren't optional add-ons — they're phases in the playbook.
+4. **Ecosystem integration is built in.** Issues for tracking. Biff for coordination. Quarry for prior knowledge. Z-spec for formal specification. Beadle for recap. Standards for quality. These aren't optional add-ons — they're phases in the playbook.
 
 5. **Formal specs are the backbone.** For stateful features (T1/T2), the spec phase produces a Z specification — not prose. Z specs are type-checked (`/z-spec:check`), model-checked (`/z-spec:test`), and used to generate test cases (`/z-spec:partition`), runtime contracts (`/z-spec:contracts`), and refinement verification (`/z-spec:refine`). The spec is a living artifact that flows through the entire lifecycle: spec → tests → code → verification. This closes the loop — the specialist can't "interpret" the spec differently because Z is unambiguous.
 
 6. **Demo before ship.** Code that passes tests but hasn't been demonstrated working is not done. The workflow includes an explicit Demo phase where the feature is built, installed, and exercised as the user would see it — before creating a PR. Python projects build and install a wheel. Go projects `make install`. CLI changes run with representative arguments. The demo is evidence, not assertion.
 
-7. **The playbook is the source of truth, not CLAUDE.md.** CLAUDE.md describes principles and standards. The playbook encodes the workflow. After compaction, `bd prime` and the playbook schema restore the exact state.
+7. **The playbook is the source of truth, not CLAUDE.md.** CLAUDE.md describes principles and standards. The playbook encodes the workflow. After compaction, `get_issue` on the claimed Linear issue and the playbook schema restore the exact state.
 
 ---
 
@@ -60,14 +60,14 @@ A **playbook** (`dev.yaml`) that encodes the Punt Labs lifecycle as a state mach
 
 | Phase | Type | What | Gate | Postcondition |
 |-------|------|------|------|---------------|
-| **1. Claim** | script + llm | Find/create bead, set model/effort/fast, announce via biff, check for active agents | None | `bd show <id>` status = in_progress |
+| **1. Claim** | script + llm | Find/create issue, set model/effort/fast, announce via biff, check for active agents | None | Linear issue status = In Progress |
 | **2. Recon** | llm (sub-agents) | Quarry search for prior work. 2-3 code-explorer agents in parallel. Read identified files. Check punt-kit standards. | None | `.tmp/dev-recon.md` written |
 | **3. Spec** | llm | COO writes the spec. Stateful features → Z specification, type-checked and model-checked. Stateless → prose with acceptance criteria. Route to specialist. | **T1/T2: user confirms spec** | `.tmp/dev-spec.md` or `.tmp/dev-spec.tex` exists. Z specs pass `/z-spec:check`. |
 | **4. Implement** | llm (specialist sub-agent) | Specialist receives spec + partition tests + file list. Tests first, then code. `make check`. Background or team mode. | None | `make check` exits 0, `git diff` shows changes |
 | **5. Verify** | llm (reviewer sub-agents) | Code review (3 parallel agents) + formal verification (Z-specced features). All findings fixed. | None | All findings fixed. Refinement verified. `.tmp/dev-verify.md` written. |
 | **6. Demo** | llm | Build, install, and exercise the feature as the user would see it. Paste output as evidence. | None | Demo output captured in `.tmp/dev-demo.md` |
 | **7. Ship** | script + llm | commit-push-pr → request-review → wait-ci → wait-copilot → address-feedback → merge. 6 sub-steps. | None | PR merged, all checks green |
-| **8. Close** | script + llm | Close bead. Email recap (with demo evidence). Delete branch. Pull main. | None | `bd show <id>` status = closed |
+| **8. Close** | script + llm | Close issue. Email recap (with demo evidence). Delete branch. Pull main. | None | Linear issue status = Done |
 
 ### Phase Details
 
@@ -80,9 +80,9 @@ A **playbook** (`dev.yaml`) that encodes the Punt Labs lifecycle as a state mach
     0. **Set model and effort** — before any work:
        `/model opus[1m]`, `/effort max`, `/fast`.
        The COO runs at full capability from the start.
-    1. Check `bd ready` for available work. If a bead ID was provided
+    1. List the repo's open issues (`list_issues`, team `PL`, label `repo:<name>`) for available work. If an issue ID was provided
        as argument, use that instead.
-    2. `bd update <id> --status=in_progress`
+    2. `save_issue` with the issue `id` and status In Progress
     3. **Biff coordination** — biff is the team presence and messaging
        system. Before touching files:
        a. `/who` — list active agents across all repos. Check if
@@ -90,20 +90,20 @@ A **playbook** (`dev.yaml`) that encodes the Punt Labs lifecycle as a state mach
        b. If others are active in this repo: `EnterWorktree` to
           isolate your work. Never modify tracked files in a repo
           with another active agent.
-       c. `/plan <bead-id>: <title>` — set your working status.
+       c. `/plan <issue-id>: <title>` — set your working status.
           This is visible to all agents via `/who` and `/finger`.
           Other agents use this to avoid conflicts and to know
           what you're doing.
-    4. Create feature branch: `git checkout -b <prefix>/<bead-id> main`
+    4. Create feature branch: `git checkout -b <prefix>/<issue-id> main`
     5. Classify tier:
-       - Bead has "epic" type or touches 3+ repos → T1
-       - Bead touches multiple files, has design ambiguity → T2
+       - Issue has "epic" type or touches 3+ repos → T1
+       - Issue touches multiple files, has design ambiguity → T2
        - Otherwise → T3
 
-    Write phase output to `.tmp/dev-claim.md`: bead ID, tier,
+    Write phase output to `.tmp/dev-claim.md`: issue ID, tier,
     branch name, specialist routing decision.
   postcondition:
-    check: bd show ${bead_id} --json | grep -q '"status":"in_progress"'
+    check: Linear issue ${issue_id} has status In Progress
 ```
 
 #### Phase 2: Recon
@@ -113,7 +113,7 @@ A **playbook** (`dev.yaml`) that encodes the Punt Labs lifecycle as a state mach
   type: llm
   context: |
     Launch in parallel:
-    1. Quarry search: `/find` for prior work related to this bead's
+    1. Quarry search: `/find` for prior work related to this issue's
        domain. Check memory-claude collection for relevant procedures.
     2. Code-explorer agent: "Find all code related to <feature area>.
        Return the 10 most important files with file:line references."
@@ -168,7 +168,7 @@ A **playbook** (`dev.yaml`) that encodes the Punt Labs lifecycle as a state mach
     changes, documentation, pure functions without state):
 
     Write prose spec in `.tmp/dev-spec.md`:
-    - What to build (from bead description + recon findings)
+    - What to build (from issue description + recon findings)
     - Acceptance criteria (testable)
     - Key files from recon
 
@@ -244,7 +244,7 @@ A **playbook** (`dev.yaml`) that encodes the Punt Labs lifecycle as a state mach
 
     **Mode B: Agent team (parallel decomposition)**
 
-    Only when: (a) bead is an epic with enumerated sub-tasks, or
+    Only when: (a) issue is an epic with enumerated sub-tasks, or
     (b) user explicitly requests parallelism.
 
     1. Decompose the spec into independent work units. Each unit must
@@ -268,7 +268,7 @@ A **playbook** (`dev.yaml`) that encodes the Punt Labs lifecycle as a state mach
     **Choosing the mode:**
 
     - Default → Mode A
-    - T3 beads → always Mode A
+    - T3 issues → always Mode A
     - T1 epics with enumerated sub-tasks → Mode B
     - User explicitly requests parallel → Mode B
     - When in doubt → Mode A (simpler, less coordination overhead)
@@ -450,10 +450,10 @@ Split into 6 sub-steps per autopilot.yaml pattern:
 - id: close
   type: llm
   context: |
-    1. `bd close <id>`
+    1. Set the Linear issue to Done with `save_issue`
     2. Send recap email to jim@punt-labs.com via beadle:
        Subject: [<repo>] PR #N merged: <title>
-       Body: bead ID, PR link, 1-paragraph summary, key decisions,
+       Body: issue ID, PR link, 1-paragraph summary, key decisions,
        demo evidence (from `.tmp/dev-demo.md`).
     3. Delete feature branch locally and remotely.
     4. Switch to main, pull latest.
@@ -469,7 +469,7 @@ Split into 6 sub-steps per autopilot.yaml pattern:
 |--------|-----------|--------------|----------------|
 | Recon depth | 3 explorers + quarry + standards | 2 explorers + quarry | 1 explorer (or skip if obvious) |
 | Spec gate | User confirms spec | User confirms spec | No gate — auto-proceed |
-| Spec format | Z spec (stateful) or prose | Z spec (stateful) or prose | Prose (bead description) |
+| Spec format | Z spec (stateful) or prose | Z spec (stateful) or prose | Prose (issue description) |
 | Architecture | 2-3 competing approaches, user chooses | None — specialist decides | Specialist decides |
 | Implement mode | Mode B if sub-tasks, else Mode A | Mode A | Mode A |
 | Review depth | 3 reviewers + Z refine + Z oracle | 3 reviewers + Z refine | code-reviewer only |
@@ -506,7 +506,7 @@ hardcoded in the playbook.
 | Security review (Phase 5) | Security engineer (currently djb) |
 | ML inference, ONNX | ML specialist (currently kpz) |
 
-When a bead spans multiple domains (e.g., Go library + Python CLI
+When an issue spans multiple domains (e.g., Go library + Python CLI
 wrapper), use Mode B with one specialist per domain.
 
 The routing decision is written to `.tmp/dev-claim.md` in Phase 1
@@ -522,7 +522,7 @@ context. This survives compaction and enables resume-from-phase.
 
 | Phase | Output File | Contents |
 |-------|------------|----------|
-| Claim | `.tmp/dev-claim.md` | Bead ID, tier, branch, specialist |
+| Claim | `.tmp/dev-claim.md` | Issue ID, tier, branch, specialist |
 | Recon | `.tmp/dev-recon.md` | File list, quarry findings, standards |
 | Spec | `.tmp/dev-spec.md` or `.tmp/dev-spec.tex` | Specification |
 | Architecture | `.tmp/dev-architecture.md` | Chosen approach (T1 only) |
@@ -537,29 +537,29 @@ and resumes from the first phase whose output file is missing.
 
 ### Composition with autopilot.yaml
 
-`dev.yaml` is `mode: once` — it processes a single bead. `autopilot.yaml`
-is `mode: loop` — it selects beads and iterates. They compose:
+`dev.yaml` is `mode: once` — it processes a single issue. `autopilot.yaml`
+is `mode: loop` — it selects issues and iterates. They compose:
 
-autopilot's `implement` through `close-bead` steps are replaced with
+autopilot's `implement` through `close-issue` steps are replaced with
 a single step that invokes the dev playbook:
 
 ```yaml
 - id: run-dev
   type: llm
   context: |
-    Run `/punt:auto dev bead_id=${claimed_id}`. This executes the
+    Run `/punt:auto dev issue_id=${claimed_id}`. This executes the
     full dev workflow (recon → spec → implement → verify → demo →
-    ship → close) for the claimed bead. When it completes, the
-    bead is closed, the PR is merged, and the loop continues.
+    ship → close) for the claimed issue. When it completes, the
+    issue is closed, the PR is merged, and the loop continues.
 ```
 
 This fixes autopilot's current gap: no code review, no demo, no
 Z-spec integration. All of that comes from dev.yaml automatically.
 
 `dev.yaml` does NOT replace `autopilot.yaml`. Their modes differ
-(`once` vs `loop`), their parameters differ (dev needs `bead_id`,
+(`once` vs `loop`), their parameters differ (dev needs `issue_id`,
 autopilot selects automatically), and keeping them separate lets
-users run dev on a single known bead without autopilot's selection.
+users run dev on a single known issue without autopilot's selection.
 
 ---
 
@@ -587,13 +587,13 @@ Once the playbook is reliable, the CLAUDE.md lifecycle section changes:
 ```markdown
 ## Development Workflow
 
-For all code changes, use `/punt:auto dev` (or `/punt:auto dev bead_id=<id>`).
-This runs the dev playbook which handles: bead claiming, codebase recon,
+For all code changes, use `/punt:auto dev` (or `/punt:auto dev issue_id=<id>`).
+This runs the dev playbook which handles: issue claiming, codebase recon,
 Z-spec or prose specification, specialist delegation, code review, demo
-verification, PR lifecycle, and bead closure.
+verification, PR lifecycle, and issue closure.
 
-For autonomous bead processing, use `/punt:auto autopilot` which loops
-through available beads using the dev workflow for each.
+For autonomous issue processing, use `/punt:auto autopilot` which loops
+through available issues using the dev workflow for each.
 
 For releases, use `/punt:auto release`.
 ```
@@ -612,10 +612,10 @@ changes.
    or `type: script`. Agent delegation happens via the Agent tool within
    LLM steps.
 
-2. **Add `bead_id` parameter** (optional). When provided, skip `bd ready`
-   and use the given bead. When absent, fall back to `bd ready`.
+2. **Add `issue_id` parameter** (optional). When provided, skip the issue listing
+   and use the given issue. When absent, fall back to listing open issues.
 
-3. **Test on a real T3 bead** — pick a small bead, run `/punt:auto dev`,
+3. **Test on a real T3 issue** — pick a small issue, run `/punt:auto dev`,
    observe what breaks.
 
 4. **Iterate** — fix executor gaps exposed by real runs. Add T2 support
@@ -623,7 +623,7 @@ changes.
 
 5. **Update autopilot.yaml** — replace inner loop with dev invocation.
 
-6. **Slim CLAUDE.md** — once dev.yaml is proven reliable on 5+ beads.
+6. **Slim CLAUDE.md** — once dev.yaml is proven reliable on 5+ issues.
 
 ### Schema Extensions (v2, after v1 is proven)
 

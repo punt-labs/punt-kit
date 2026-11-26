@@ -497,11 +497,11 @@ included.
 
 ## 7. Operator decisions
 
-Each item deviates from a settled ADR, a standard, or the operator's bead
+Each item deviates from a settled ADR, a standard, or the operator's issue
 text, and is phrased for a one-word ruling.
 
 1. **The workspace deploys no rule set while anthropics/claude-code#16299 is
-   open.** The bead (pkit-z711) says the workspace "installs its OWN set (for
+   open.** The issue (pkit-z711) says the workspace "installs its OWN set (for
    `.bin/` Python) via the same mechanism" and that the fix holds "by
    construction". It does not: the ancestor path loads any `.claude/rules/`
    in the workspace, current or stale, into every nested session. Deleting the
@@ -520,7 +520,7 @@ text, and is phrased for a one-word ruling.
    `.claude/settings.json` as a Claude-Code-dictated location a tool may
    write, bounded by the manifest. Confirm or course-correct.
 3. **The verb is the bare `punt enable`, not a `repo-install` /
-   `repo-update` verb.** The bead names the latter; DES-024, § 2.10, and
+   `repo-update` verb.** The issue names the latter; DES-024, § 2.10, and
    pkit-pjwn name the former. Recommend `enable` (§ 4). Confirm or
    course-correct.
 4. **This unit takes the bare `punt enable` and `punt disable` from
@@ -540,7 +540,7 @@ text, and is phrased for a one-word ruling.
    `--fix` creates what `init` creates. Confirm or course-correct.
 8. **A locally edited deployed file is overwritten and reported, not
    refused.** This follows punt-labs-dir PLD-7's wholesale-overwrite contract
-   for the vendored zone; it is listed because the bead does not say what
+   for the vendored zone; it is listed because the issue does not say what
    happens to such a file. Recommend overwrite with a printed line per file.
    Confirm or course-correct.
 9. **`punt disable` removes the deployed rules and the manifest.**

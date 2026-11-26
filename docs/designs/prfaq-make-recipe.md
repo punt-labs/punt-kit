@@ -559,7 +559,7 @@ documents through the real entry point and does not re-test the recipe.
 | Real-TeX tests only, `@pytest.mark.skipif(shutil.which("pdflatex") is None)` | Skips in today's CI and on any host without TeX, so the gate passes for the wrong reason; the Python testing rule forbids a skip without a tracked fix. |
 | Real-TeX tests behind a `tex` marker excluded from `make test`, run only in CI | This was the Python testing rule's default at the time of this decision. Local `make check` green would stop meaning CI green on the operator's hosts, and the pattern-drift check would never run where the recipe is edited. |
 | Stub-tool tests only | Captured logs go stale silently when TeX changes its warning text; the real tier is what notices. |
-| Assert on `tests/test_seed.py` rendering alone (the section contains the grep patterns) | Proves the template renders, not that the recipe fails on a bad document; the bead's defect is behavioral. |
+| Assert on `tests/test_seed.py` rendering alone (the section contains the grep patterns) | Proves the template renders, not that the recipe fails on a bad document; the issue's defect is behavioral. |
 | Keep variant A in the tree as a fixture so the suite shows it passing a bad document | Encodes the bug as expected behavior; the failing run is recorded in the mission result instead. |
 
 ### 5.4 Rollout and cryptd's disposition
@@ -592,10 +592,10 @@ documents through the real entry point and does not re-test the recipe.
    The prfaq repo is the strictest consumer (`test: prfaq`, wildcard
    `TEX_FILES`, two shipped templates), so its PR is the first of the six
    to merge; the rest follow in any order.
-4. **quarry and ethos** are not in this rollout. Each gets a bead in its own
+4. **quarry and ethos** are not in this rollout. Each gets an issue in its own
    funnel: declare `TEX_FILES`, run `punt seed makefile`, and retire the
    repo's own compile loop or keep it for the non-prfaq documents. quarry's
-   `docs` target passes an undefined `\ref` today (§ 2.2); the bead says so.
+   `docs` target passes an undefined `\ref` today (§ 2.2); the issue says so.
 
 **cryptd's disposition:** replaced by the managed section. Its block is the
 template's source, so the replacement changes the recipe only by the
@@ -690,11 +690,11 @@ own copy; nothing carried the fix to the other six, and no test pinned it.
 
 ## 7. Operator decisions
 
-Each item deviates from a settled ADR, a standard, or the bead text, or
-fixes a choice the bead left open, and is phrased for a one-word ruling.
+Each item deviates from a settled ADR, a standard, or the issue text, or
+fixes a choice the issue left open, and is phrased for a one-word ruling.
 
 1. **The canonical recipe is a `punt seed makefile` managed section, not a
-   shared make include or the plugin's compile script.** The bead names
+   shared make include or the plugin's compile script.** The issue names
    those two; the contract adds the section and asks that it be settled
    against DES-024, § 2.3, § 2.10, and DES-027 (§ 4). Recommend the managed
    section. Confirm or course-correct.
@@ -713,7 +713,7 @@ fixes a choice the bead left open, and is phrased for a one-word ruling.
    messaged before merge. Recommend the replacement. Confirm or
    course-correct.
 4. **cryptd's hand-rolled block is replaced by the managed section.** The
-   bead treats cryptd as done ("formerly cryptd"); the design brings it
+   issue treats cryptd as done ("formerly cryptd"); the design brings it
    under the audit (§ 5.4). Recommend replace. Confirm or course-correct.
 5. **The real-TeX tests fail, not skip, without TeX; CI installs TeX Live
    and biber; and this departs from the Python testing rule.** Two costs,
@@ -734,15 +734,15 @@ fixes a choice the bead left open, and is phrased for a one-word ruling.
    tool whose output is read instead of its exit code, and the one test
    that detects a TeX release changing that output must run where the
    recipe is edited, not only after push. Confirm or course-correct.
-6. **quarry and ethos are not in this rollout.** The bead lists them among
+6. **quarry and ethos are not in this rollout.** The issue lists them among
    the eight repos sharing the recipe; neither has a `prfaq` target, and
    each has its own compile loop with its own documented reason for staying
-   out of `make check`. Recommend one bead in each repo's funnel to opt in
+   out of `make check`. Recommend one issue in each repo's funnel to opt in
    by declaring `TEX_FILES`, with quarry's noting that its `docs` target
    passes an undefined `\ref`. Confirm or course-correct.
 7. **An unresolved citation or reference is a failure; an overfull box is a
    warning; every failure is `make` exit 2 with one `Error:` line last on
-   stderr.** The bead names the patterns and not the exit or output shape;
+   stderr.** The issue names the patterns and not the exit or output shape;
    cryptd's block chose this shape and the contract asks for it to be
    pinned. Recommend as § 3.4. Confirm or course-correct.
 8. **`punt audit --fix` does not seed the section.** The lang-rules
@@ -752,7 +752,7 @@ fixes a choice the bead left open, and is phrased for a one-word ruling.
    course-correct.
 9. **The plugin script is fixed under prfaq's own issue (Linear PL-715) by
    adopting this contract, with no code shared between the repos.** The
-   bead offers the script as a candidate home for the canonical recipe.
+   issue offers the script as a candidate home for the canonical recipe.
    Recommend the two-implementations-one-contract relationship of § 3.7.
    Confirm or course-correct.
 
@@ -815,7 +815,7 @@ workspace or child.
 |------|---------|
 | vox, biff, lux, beadle, prfaq, cryptd `Makefile` | Hand block out, section in, `.PHONY` edit, `TEX_FILES` kept; biff and lux move their `docs/` sweeps to `clean-docs` (§ 5.4 table). |
 | the same six `.gitignore` | `*.build.pdf`; lux's exact-name `/prfaq.*` lines gain the `.build` forms; cryptd's `prfaq.build.pdf` widens. |
-| quarry, ethos | No change in this unit; one bead each (decision 6). |
+| quarry, ethos | No change in this unit; one issue each (decision 6). |
 
 ### Out of this write-set
 
