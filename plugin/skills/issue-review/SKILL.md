@@ -181,6 +181,15 @@ with no changes, which get their own (typically short) table:
 |-------|-----------|----------|-------|
 | ... | ... | ... | ... |
 
+### Proposed replacement text
+
+One block per rewritten issue, so the operator approves the exact words, not
+only the title:
+
+#### <identifier> — <new title>
+
+> <the full replacement description, verbatim>
+
 ## Confirmed good
 
 | Issue | Title | Priority | Theme |
