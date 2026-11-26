@@ -84,7 +84,7 @@ Each command that takes `[path]` runs on the current directory when the path is 
 
 | Command | What it does |
 |---------|-------------|
-| `punt repo init [path]` | Set up a Punt Labs project: CI workflows, linter config, `CLAUDE.md`, Claude Code permissions, and beads. `--language` overrides the detected language |
+| `punt repo init [path]` | Set up a Punt Labs project: CI workflows, linter config, `CLAUDE.md`, and Claude Code permissions. `--language` overrides the detected language |
 | `punt repo audit [path]` | Check the project against the standards. Read-only unless you pass `--fix` |
 | `punt repo audit --fix [path]` | Also create missing files that need no judgment: markdownlint config, `py.typed`, and `CHANGELOG.md` |
 | `punt enable [path]` | Enable punt in the repo: deposit its guide, add the `@.punt-labs/punt/CLAUDE.md` import, and allow `Skill(punt:*)`, with `ask` rules for `/punt:auto` and `/punt:reconcile` |
@@ -93,11 +93,9 @@ Each command that takes `[path]` runs on the current directory when the path is 
 | `punt release run [version]` | Run the 11-phase release, from preflight checks through PyPI publishing to updates in sibling repositories. Supports `--resume-from <phase>`, `--dry-run`, and `--path` |
 | `punt repo scan-pii [path]` | Scan tracked files for personal information (email addresses, home directory paths, `.local` hostnames). `--staged` scans only staged files, for use in a pre-commit hook |
 | `punt doctor` | Check the installation (Python, uv, ruff, mypy, pyright) |
-| `punt status [path]` | Show the detected language and project type, whether the project is a plugin or MCP server, and its open and in-progress bead counts |
+| `punt status [path]` | Show the detected language and project type, whether the project is a plugin or MCP server |
 | `punt version` | Print the installed punt-kit version |
 | `punt install` | Register or refresh the marketplace and install the plugin for the current user without changing this checkout |
-
-Beads is a local issue tracker with the `bd` command. `punt repo init` runs `bd init` when `bd` is on your `PATH` and skips that step otherwise.
 
 ### Global Flags
 
@@ -132,7 +130,7 @@ to override auto-detection.
 | `release run` | The requested release phases finished, or the dry run finished without publishing; earlier phases are not rerun on resume | `version`, `dry_run`; verification failures include `resume_from` |
 | `enable` | Repository integration is in place, possibly unchanged | `changes` |
 | `disable` | Repository integration is dormant; the guide is retained if present | `changes` |
-| `status` | The checkout's state was read, not checked for installation health | Checkout and beads state |
+| `status` | The checkout's state was read, not checked for installation health | Checkout state |
 | `doctor` | All required installation checks passed | Array of checks, or `error` and `checks` on failure |
 | `version` | The installed version was read | `version` |
 | `install` | Claude Code confirmed the plugin is installed at user scope | `plugin`, `scope`, `changes` |
@@ -148,7 +146,7 @@ The `punt@punt-labs` plugin adds these commands to Claude Code. The plugin does 
 | `/punt:pii [path] [--staged]` | Run `punt repo scan-pii` |
 | `/punt:reconcile [path]` | Run `punt repo audit`, then have Claude compare the project's CI workflows, `CLAUDE.md`, and `pyproject.toml` with the standards and edit the parts that differ. Use it for changes that need judgment, which `punt repo audit --fix` does not make |
 | `/punt:auto <playbook>` | Run an automation playbook: `release`, `autopilot`, `makefile`, `permissions-rollout`, `reconcile-memory`, or `standards-rollout` |
-| `/punt:bead-review [repo]` | Review every open bead for clarity, validity, and priority, closing invalid ones and rewriting the rest. In a repository whose backlog has moved to Linear it stops and points you to Linear |
+| `/punt:issue-review [repo]` | Review every open Linear issue labelled `repo:<name>` for clarity, validity, and priority, canceling invalid ones and rewriting the rest |
 
 ### What `punt repo init` Creates
 
@@ -161,9 +159,8 @@ The `punt@punt-labs` plugin adds these commands to Claude Code. The plugin does 
   prose and bare imports. Malformed markers skip stripping with a warning;
   missing standards references are still added. Makefile marker sections are
   not changed.
-- **Claude Code permissions** — `.claude/settings.json` with the baseline allow list (`mcp__github__*`, the build and language tools, `Bash(bd:*)`, `Bash(punt:*)`, and `Bash(<cli>-server:*)` only when the project declares a `<cli>-server` entry point) and the standard deny rules. A plugin's MCP wildcard, its `Skill()` rules, and its own `Bash(<cli>:*)` rule are not added here; each tool's `enable` command adds them and its `disable` command removes them.
+- **Claude Code permissions** — `.claude/settings.json` with the baseline allow list (`mcp__github__*`, the build and language tools, `Bash(punt:*)`, and `Bash(<cli>-server:*)` only when the project declares a `<cli>-server` entry point) and the standard deny rules. A plugin's MCP wildcard, its `Skill()` rules, and its own `Bash(<cli>:*)` rule are not added here; each tool's `enable` command adds them and its `disable` command removes them.
 - **Gitignore** — a `.claude/` entry, with exceptions so `.claude/settings.json` and `.claude/hooks/` can still be committed
-- **Beads** — issue tracking set up with `bd init`
 
 It then lists the steps that need GitHub or dashboard access:
 

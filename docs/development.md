@@ -37,7 +37,7 @@ claude -p --plugin-dir plugin "/punt-dev:audit --help"
 |------|----------|
 | `plugin/.claude-plugin/plugin.json` | The plugin manifest. It declares no MCP servers; the commands call the `punt` CLI installed from PyPI |
 | `plugin/commands/` | Slash commands, in `name.md` and `name-dev.md` pairs |
-| `plugin/skills/` | The `auto` skill, which runs playbooks, and the `bead-review` skill |
+| `plugin/skills/` | The `auto` skill, which runs playbooks, and the `issue-review` skill |
 | `plugin/playbooks/` | The playbook YAML files that `/punt:auto` loads from `${CLAUDE_PLUGIN_ROOT}/playbooks/` |
 
 The plugin does not contain the `punt` program. Users install it separately
@@ -48,7 +48,7 @@ from PyPI (the README's Quick Start does both).
 The marketplace entry uses a `git-subdir` source, which is a cone-mode sparse
 checkout of `plugin/`. Cone mode excludes directories but not files at the
 repository root. So `src/`, `tests/`, `standards/`, `lang-rules/`, `patterns/`,
-`docs/`, `scripts/`, `tools/`, `.beads/`, and `.punt-labs/` never reach an
+`docs/`, `scripts/`, `tools/`, and `.punt-labs/` never reach an
 installed plugin, but root files such as `README.md`, `DESIGN.md`,
 `CHANGELOG.md`, `AGENTS.md`, and `prfaq.*` do. See DES-025 and DES-028 in
 [DESIGN.md](../DESIGN.md).
