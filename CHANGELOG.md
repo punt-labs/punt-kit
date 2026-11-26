@@ -7,7 +7,8 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Add a Linux x86-64 Ethos handoff snapshot profile that runs the unchanged
-  `make check` gate offline with a pinned runtime.
+  `make check` gate offline with a pinned runtime. The runtime installer
+  previews by default; use `--apply` to download or pass a local archive.
 
 ## [0.20.0] - 2026-11-25
 
