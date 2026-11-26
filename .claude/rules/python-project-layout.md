@@ -33,7 +33,6 @@ Tests live in `tests/` at the project root, mirroring source structure.
   CLAUDE.md
   CHANGELOG.md
   README.md
-  .beads/
 ```
 
 **Criterion**:
