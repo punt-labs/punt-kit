@@ -17,7 +17,8 @@ The installer verifies the digest before placing the archive in
 `~/.punt-labs/ethos/runtimes/`. Ethos does not download it. To install the same
 bytes before publication, pass a local archive path to the installer. The
 download is not available until the release is published. Run the installer
-without arguments to preview without writing anything.
+without arguments to preview the bundle, download URL, SHA-256, and destination
+without writing anything.
 
 The bundle contains uv, Python, Node with npm, and the offline dependency caches.
 The profile uses private copies of those caches and a fresh venv. The design

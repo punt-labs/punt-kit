@@ -11,7 +11,6 @@ if [[ $# -gt 1 ]]; then
     exit 2
 fi
 case "${1:-}" in
-    '') usage; exit 0 ;;
     -h|--help) usage; exit 0 ;;
     --apply) ;;
     -*) usage >&2; exit 2 ;;
@@ -24,7 +23,7 @@ fi
 
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 sidecar=$repo/.punt-labs/ethos/checks/snapshots/punt-kit.yaml
-pin=$(python3 -I - "$sidecar" <<'PY'
+pin=$(python3 -IB - "$sidecar" <<'PY'
 import json
 import re
 import sys
@@ -45,13 +44,18 @@ try:
         raise ValueError
 except (OSError, KeyError, TypeError, ValueError):
     sys.exit("Invalid punt-kit snapshot runtime pin for linux-amd64.")
-print(url, sha)
+print(url, sha, entry["bundle"])
 PY
 )
-read -r url sha <<< "$pin"
+read -r url sha bundle <<< "$pin"
 
 store=$HOME/.punt-labs/ethos/runtimes
 archive=$store/$sha.tar.gz
+if [[ -z ${1:-} ]]; then
+    printf 'Bundle: %s\nURL: %s\nSHA-256: %s\nDestination: %s\n' "$bundle" "$url" "$sha" "$archive"
+    printf 'Use --apply to install this runtime.\n'
+    exit 0
+fi
 umask 077
 mkdir -p -- "$store"
 if [[ ! -O $store || -L $store ]]; then
