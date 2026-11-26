@@ -131,7 +131,14 @@ class TestGrant:
         assert not [rule for rule in _ALL if rule.startswith("Bash(")]
 
     def test_file_editing_commands_are_ask_carve_outs(self) -> None:
-        assert _ASK == ("Skill(punt:auto)", "Skill(punt:reconcile)")
+        assert _ASK == (
+            "Skill(punt:auto)",
+            "Skill(punt:reconcile)",
+            "Skill(punt:issue-review)",
+        )
+
+    def test_issue_review_writes_to_linear_so_it_must_ask(self) -> None:
+        assert "Skill(punt:issue-review)" in _ASK
 
 
 class TestRevoke:

@@ -211,7 +211,12 @@ def make_compliant_python(tmp_path: Path) -> None:
         '[tool.pyright]\ntypeCheckingMode = "strict"\n\n'
         "[tool.pytest.ini_options]\ntestpaths = ['tests']\n"
     )
-    (tmp_path / "CLAUDE.md").write_text("# Agent Instructions\n")
+    (tmp_path / "CLAUDE.md").write_text(
+        "# Agent Instructions\n@.punt-labs/punt/CLAUDE.md\n"
+    )
+    guide = tmp_path / ".punt-labs" / "punt" / "CLAUDE.md"
+    guide.parent.mkdir(parents=True)
+    guide.write_text("# Tracking work\n")
     (tmp_path / "CHANGELOG.md").write_text("# Changelog\n")
     (tmp_path / "Makefile").write_text(
         ".PHONY: help test lint type check format\n\n"

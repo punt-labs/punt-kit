@@ -53,6 +53,47 @@ def test_audit_compliant_project_passes(tmp_path: Path) -> None:
     run_audit(str(tmp_path))
 
 
+_GUIDE_LABEL = "Linear workflow guide imported"
+
+
+def test_audit_passes_the_linear_guide_check_when_deposited_and_imported(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _make_compliant_python(tmp_path)
+
+    run_audit(str(tmp_path))
+
+    assert f"✓ {_GUIDE_LABEL}" in capsys.readouterr().out
+
+
+def test_audit_fails_the_linear_guide_check_when_the_guide_is_missing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _make_compliant_python(tmp_path)
+    (tmp_path / ".punt-labs" / "punt" / "CLAUDE.md").unlink()
+
+    with pytest.raises(SystemExit):
+        run_audit(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert f"✗ {_GUIDE_LABEL}" in out
+    assert "Missing .punt-labs/punt/CLAUDE.md" in out
+
+
+def test_audit_fails_the_linear_guide_check_when_claude_md_omits_the_import(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _make_compliant_python(tmp_path)
+    (tmp_path / "CLAUDE.md").write_text("# Agent Instructions\n")
+
+    with pytest.raises(SystemExit):
+        run_audit(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert f"✗ {_GUIDE_LABEL}" in out
+    assert "does not import @.punt-labs/punt/CLAUDE.md" in out
+
+
 def test_audit_fix_creates_markdownlint(tmp_path: Path) -> None:
     """--fix creates missing markdownlint config files."""
     _make_compliant_python(tmp_path)

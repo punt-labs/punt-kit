@@ -26,11 +26,13 @@ if TYPE_CHECKING:
 
 __all__ = ["PUNT_RULES", "PermissionChange", "ProjectPermissions"]
 
-# Ask beats allow, so release and editing commands still prompt.
+# Ask beats allow, so release, editing and Linear-writing commands still prompt.
 # The Bash(punt:*) rule belongs to the punt repo init baseline.
 PUNT_RULES: Final[dict[str, tuple[str, ...]]] = {
     "allow": ("Skill(punt:*)",),
-    "ask": tuple(f"Skill(punt:{cmd})" for cmd in ("auto", "reconcile")),
+    "ask": tuple(
+        f"Skill(punt:{cmd})" for cmd in ("auto", "reconcile", "issue-review")
+    ),
 }
 
 _NEW_FILE_MODE: Final = 0o644

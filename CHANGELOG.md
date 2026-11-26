@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 
+- Beads support is removed from `punt repo init`, `punt repo audit`,
+  `punt status` and the release preflight: init no longer runs `bd init` or
+  creates `.beads/`, audit no longer checks for beads and now checks the Linear
+  workflow guide import, status shows no bead counts, and `Bash(bd:*)` is no
+  longer a baseline permission. Work is tracked in Linear; see
+  `.punt-labs/punt/CLAUDE.md`.
 - The vendored ethos registry under `.punt-labs/ethos/` (identities, roles,
   talents, teams, and the recorded missions), `.punt-labs/ethos.yaml`, and the
   `mcp__plugin_ethos*` permissions are removed from this repository for now,
