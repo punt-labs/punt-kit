@@ -47,7 +47,7 @@ class PuntGuideAudit:
             ReleaseError: ``CLAUDE.md`` exists but cannot be read.
         """
         imported = self._is_imported()
-        if not (self._root / MARKER).exists():
+        if not (self._root / MARKER).is_file():
             if imported:
                 detail = f"CLAUDE.md imports @{GUIDE} but punt is not enabled"
                 return [(FAIL, LABEL, f"{detail} — run punt enable or remove it")]
