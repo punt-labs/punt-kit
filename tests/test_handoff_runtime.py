@@ -36,11 +36,14 @@ def checkout(tmp_path: Path) -> Path:
 
 
 def _install(
-    checkout: Path, home: Path, *args: str | Path
+    checkout: Path, home: Path, *args: str | Path, bin_dir: Path | None = None
 ) -> subprocess.CompletedProcess[str]:
+    path = "/usr/local/bin:/usr/bin:/bin"
+    if bin_dir is not None:
+        path = f"{bin_dir}:{path}"
     return subprocess.run(
         ["bash", str(checkout / INSTALLER), *(str(arg) for arg in args)],
-        env={"HOME": str(home), "PATH": "/usr/local/bin:/usr/bin:/bin"},
+        env={"HOME": str(home), "PATH": path},
         capture_output=True,
         text=True,
         check=False,
@@ -63,6 +66,27 @@ def test_installer_rejects_unknown_flags(checkout: Path, tmp_path: Path) -> None
     assert result.returncode == 2
     assert "usage" in result.stderr
     assert not (tmp_path / ".punt-labs").exists()
+
+
+def test_installer_previews_without_arguments(checkout: Path, tmp_path: Path) -> None:
+    result = _install(checkout, tmp_path)
+    assert result.returncode == 0
+    assert "--apply" in result.stdout
+    assert not (tmp_path / ".punt-labs").exists()
+
+
+def test_installer_applies_download(checkout: Path, tmp_path: Path) -> None:
+    curl = tmp_path / "curl"
+    curl.write_text(
+        "#!/bin/bash\n"
+        "while [[ $1 != --output ]]; do shift; done\n"
+        f"printf '%s' '{ARCHIVE.decode()}' > \"$2\"\n"
+    )
+    curl.chmod(0o755)
+    result = _install(checkout, tmp_path, "--apply", bin_dir=tmp_path)
+    assert result.returncode == 0, result.stderr
+    installed = tmp_path / ".punt-labs/ethos/runtimes" / f"{SHA256}.tar.gz"
+    assert installed.read_bytes() == ARCHIVE
 
 
 def test_installs_and_reuses_verified_archive(checkout: Path, tmp_path: Path) -> None:

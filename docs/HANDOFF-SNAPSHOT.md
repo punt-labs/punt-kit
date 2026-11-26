@@ -10,13 +10,14 @@ On Linux x86-64, install Git, Make, Bash, ShellCheck, gettext, Python 3,
 curl, and GNU coreutils, then install the pinned runtime:
 
 ```sh
-scripts/install-handoff-runtime.sh
+scripts/install-handoff-runtime.sh --apply
 ```
 
 The installer verifies the digest before placing the archive in
 `~/.punt-labs/ethos/runtimes/`. Ethos does not download it. To install the same
 bytes before publication, pass a local archive path to the installer. The
-default download is not available until the release is published.
+download is not available until the release is published. Run the installer
+without arguments to preview without writing anything.
 
 The bundle contains uv, Python, Node with npm, and the offline dependency caches.
 The profile uses private copies of those caches and a fresh venv. The design

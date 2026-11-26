@@ -2,15 +2,22 @@
 set -euo pipefail
 
 usage() {
-    printf 'usage (Linux x86_64): %s [LOCAL_ARCHIVE]\n' "$0"
+    printf 'usage (Linux x86_64): %s [--apply | LOCAL_ARCHIVE]\n' "$0"
+    printf 'Without arguments, preview installation; use --apply to download the pinned runtime.\n'
 }
 
+if [[ $# -gt 1 ]]; then
+    usage >&2
+    exit 2
+fi
 case "${1:-}" in
+    '') usage; exit 0 ;;
     -h|--help) usage; exit 0 ;;
+    --apply) ;;
     -*) usage >&2; exit 2 ;;
 esac
 
-if [[ $# -gt 1 || $(uname -s)/$(uname -m) != Linux/x86_64 ]]; then
+if [[ $(uname -s)/$(uname -m) != Linux/x86_64 ]]; then
     usage >&2
     exit 2
 fi
@@ -64,12 +71,12 @@ fi
 
 download=$(mktemp "$store/.punt-kit-runtime.XXXXXX")
 trap 'rm -f -- "$download"' EXIT
-if [[ $# == 1 ]]; then
-    cp -- "$1" "$download"
-else
+if [[ $1 == --apply ]]; then
     curl --proto '=https' --proto-redir '=https' --fail --silent --show-error \
         --connect-timeout 15 --retry 2 --retry-max-time 120 --max-time 300 \
         --max-filesize 1073741824 --location --output "$download" "$url"
+else
+    cp -- "$1" "$download"
 fi
 if ! matches_pin "$download"; then
     printf 'punt-kit snapshot runtime checksum mismatch; expected %s.\n' "$sha" >&2
