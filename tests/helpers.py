@@ -201,13 +201,14 @@ def python_project(root: Path) -> None:
 
 
 def deposit_punt_guide(root: Path) -> None:
-    """Write a CLAUDE.md that imports the deposited Linear workflow guide."""
+    """Enable punt: deposit the guide and marker, and import the guide."""
     (root / "CLAUDE.md").write_text(
         "# Agent Instructions\n@.punt-labs/punt/CLAUDE.md\n"
     )
-    guide = root / ".punt-labs" / "punt" / "CLAUDE.md"
-    guide.parent.mkdir(parents=True, exist_ok=True)
-    guide.write_text("# Tracking work\n")
+    subtree = root / ".punt-labs" / "punt"
+    subtree.mkdir(parents=True, exist_ok=True)
+    (subtree / "CLAUDE.md").write_text("# Tracking work\n")
+    (subtree / "enabled").touch()
 
 
 def make_compliant_python(tmp_path: Path) -> None:
@@ -220,12 +221,7 @@ def make_compliant_python(tmp_path: Path) -> None:
         '[tool.pyright]\ntypeCheckingMode = "strict"\n\n'
         "[tool.pytest.ini_options]\ntestpaths = ['tests']\n"
     )
-    (tmp_path / "CLAUDE.md").write_text(
-        "# Agent Instructions\n@.punt-labs/punt/CLAUDE.md\n"
-    )
-    guide = tmp_path / ".punt-labs" / "punt" / "CLAUDE.md"
-    guide.parent.mkdir(parents=True)
-    guide.write_text("# Tracking work\n")
+    deposit_punt_guide(tmp_path)
     (tmp_path / "CHANGELOG.md").write_text("# Changelog\n")
     (tmp_path / "Makefile").write_text(
         ".PHONY: help test lint type check format\n\n"

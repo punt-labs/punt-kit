@@ -49,6 +49,9 @@
 .CLAUDE.md.punt-import.lock
 **/.create.lock
 
+# Ignore any leftover local beads runtime state (tracker retired)
+.beads/
+
 # --- Scratch / temp ---
 .tmp/*
 !.tmp/.gitkeep

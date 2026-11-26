@@ -84,20 +84,20 @@ Each command that takes `[path]` runs on the current directory when the path is 
 
 | Command | What it does |
 |---------|-------------|
-| `punt repo init [path]` | Set up a Punt Labs project: CI workflows, linter config, `CLAUDE.md`, Claude Code permissions, and the Linear workflow guide. `--language` overrides the detected language |
+| `punt repo init [path]` | Set up a Punt Labs project: CI workflows, linter config, `CLAUDE.md`, and Claude Code permissions. `--language` overrides the detected language |
 | `punt repo audit [path]` | Check the project against the standards. Read-only unless you pass `--fix` |
 | `punt repo audit --fix [path]` | Also create missing files that need no judgment: markdownlint config, `py.typed`, and `CHANGELOG.md` |
-| `punt enable [path]` | Enable punt in the repo: deposit its guide, add the `@.punt-labs/punt/CLAUDE.md` import, and allow `Skill(punt:*)`, with `ask` rules for `/punt:auto` and `/punt:reconcile` |
+| `punt enable [path]` | Enable punt in the repo: deposit its guide, add the `@.punt-labs/punt/CLAUDE.md` import, and allow `Skill(punt:*)`, with `ask` rules for `/punt:auto`, `/punt:reconcile` and `/punt:issue-review` |
 | `punt disable [path]` | Remove punt's import, `enabled` marker and permission rules. The guide stays in place, dormant |
 | `punt repo seed <target> [path]` | Write or update the punt-managed sections of a project file. Targets: `makefile` (Python projects only) and `settings` (`.claude/settings.json`). `--dry-run` shows the changes without writing them |
 | `punt release run [version]` | Run the 11-phase release, from preflight checks through PyPI publishing to updates in sibling repositories. Supports `--resume-from <phase>`, `--dry-run`, and `--path` |
 | `punt repo scan-pii [path]` | Scan tracked files for personal information (email addresses, home directory paths, `.local` hostnames). `--staged` scans only staged files, for use in a pre-commit hook |
 | `punt doctor` | Check the installation (Python, uv, ruff, mypy, pyright) |
-| `punt status [path]` | Show the detected language and project type, whether the project is a plugin or MCP server. It shows no issue counts |
+| `punt status [path]` | Show the detected language and project type, and whether the project is a plugin or MCP server |
 | `punt version` | Print the installed punt-kit version |
 | `punt install` | Register or refresh the marketplace and install the plugin for the current user without changing this checkout |
 
-Work is tracked in Linear. `punt repo init` no longer runs `bd init`, and `punt status` shows no bead counts.
+Work is tracked in Linear. `punt enable` deposits the workflow guide that tells agents how.
 
 ### Global Flags
 
