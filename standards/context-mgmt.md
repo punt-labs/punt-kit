@@ -27,7 +27,7 @@ live ethos data. Delete it; the hook is the source.
 ## 2. Don't duplicate what a tool discovers at runtime
 
 A fact a CLI can answer does not belong hand-copied into markdown. The team
-roster is `ethos team show`; the ready work is `bd ready`; the tool verbs are
+roster is `ethos team show`; the open issues are `list_issues` on the Linear MCP; the tool verbs are
 `punt --help`. Point to the command and state that it must be run to discover the
 current answer. A pasted copy is stale the moment the tool's output changes.
 

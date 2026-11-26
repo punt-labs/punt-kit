@@ -27,7 +27,7 @@ only an MCP server when most of our tools are dual CLI+MCP.
 |-----------|-----------|---------|
 | Slash command | `/<name>` or `/<name>:<subcommand>` | `/prfaq`, `/prfaq:review`, `/z check` |
 | Plugin directory | Match the plugin name | `plugins/prfaq/`, `plugins/z-spec/` |
-| Bead ID prefix | Auto-detected from directory name | `biff-*`, `prfaq-*`, `quarry-*` |
+| Linear repo label | `repo:<name>`, the repo name | `repo:biff`, `repo:prfaq`, `repo:quarry` |
 
 ---
 

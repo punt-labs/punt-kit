@@ -8,7 +8,6 @@ allowed-tools:
   - "Grep"
   - "Bash(git:*)"
   - "Bash(gh:*)"
-  - "Bash(bd:*)"
   - "Bash(uv:*)"
   - "Bash(make:*)"
   - "Bash(punt:*)"

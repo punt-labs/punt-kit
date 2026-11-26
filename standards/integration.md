@@ -393,7 +393,7 @@ and every time a review has to check both are still working.
    surface against the new block version.
 
 **Offline consumers** — repos whose agent is not currently in `/who`
-— get a bead in their own repo (`cd ../<consumer> && bd create ...`)
+— get a Linear issue labelled with their repo (`save_issue` on team `PL`)
 naming the rename and the ETA. That is their inbox until the agent
 returns.
 

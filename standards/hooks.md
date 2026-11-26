@@ -96,7 +96,7 @@ Layer 2 extensions for each tool:
 | Spec | What it models | Key property |
 |------|---------------|--------------|
 | `claude-code.tex` | Base state machine (18 ops) | All invariants hold across 329K states |
-| `claude-code-biff.tex` | Workflow gates (plan + bead) | No file edit without plan and bead claimed |
+| `claude-code-biff.tex` | Workflow gates (plan + issue) | No file edit without plan and issue claimed |
 | `claude-code-vox.tex` | Stop hook decision-block | No infinite loop; exactly one block per turn |
 | `claude-code-quarry.tex` | Knowledge capture lifecycle | WebFetch dedup; compaction flag tracking |
 
@@ -397,7 +397,7 @@ These hooks observe state and inject context. They must never block.
 | Event | Matcher | Pattern | Example |
 |-------|---------|---------|---------|
 | SessionStart | * | Load state, inject guidance | Wall text, collision detection, project standards |
-| PostToolUse | Bash | Classify output, accumulate signals | Vibe signals, plan hints, bead claim detection |
+| PostToolUse | Bash | Classify output, accumulate signals | Vibe signals, plan hints, issue claim detection |
 | PostToolUse | WebFetch | Capture side effect | Auto-ingest fetched URLs into knowledge base |
 | PostToolUse | Edit\|Write | Inject relevant standards | Changelog format, Z spec conventions |
 | PostToolUse | MCP tools | Format output | Two-channel display (suppress-output.sh) |
@@ -412,7 +412,7 @@ fail can deadlock Claude Code.
 
 | Event | Matcher | Pattern | Example |
 |-------|---------|---------|---------|
-| PreToolUse | Edit\|Write | Workflow gate | Require plan + bead before file edits |
+| PreToolUse | Edit\|Write | Workflow gate | Require plan + issue before file edits |
 | Stop | * | Decision-block | Speak summary before allowing stop |
 
 ### Decision-block pattern (Stop hook)
@@ -452,9 +452,9 @@ self-corrects.
 
 ```text
 1. Claude decides to call Edit → PreToolUse fires
-2. Hook checks: plan set? bead claimed?
+2. Hook checks: plan set? issue claimed?
 3. If missing: return permissionDecision: "deny" with reason
-4. Claude sees denial, sets plan/claims bead, retries
+4. Claude sees denial, sets plan/claims issue, retries
 ```
 
 **Implementation pattern**:
@@ -628,7 +628,7 @@ make test  # Model-check all Z specs via probcli
 
 Reference implementations:
 
-- `z-spec/examples/claude-code-biff.tex` — Workflow gate (plan + bead)
+- `z-spec/examples/claude-code-biff.tex` — Workflow gate (plan + issue)
 - `z-spec/examples/claude-code-vox.tex` — Decision-block (Stop hook)
 - `z-spec/examples/claude-code-quarry.tex` — Knowledge capture lifecycle
 

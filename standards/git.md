@@ -243,7 +243,6 @@ sequence lives in [Workflow](workflow.md) § Batch close-out):
 
 ```bash
 git push                      # push the current branch's commits to its upstream
-bd dolt push                  # where the repo tracks issues in dolt
 git status                    # must report the branch up to date with its upstream
 ```
 
