@@ -17,9 +17,9 @@ Arguments: $ARGUMENTS (defaults to `.` if empty; pass `--fix` to auto-create mis
 Run the audit command:
 
 ```bash
-punt audit $ARGUMENTS
+punt repo audit $ARGUMENTS
 ```
 
 Report the output to the user. Summarize the pass/fail results.
 
-If there are failures that `--fix` can resolve, suggest re-running with `--fix`. For issues requiring contextual judgment, suggest `/punt reconcile`.
+If there are failures that `--fix` can resolve, suggest re-running with `--fix`. For issues requiring contextual judgment, suggest `/punt:reconcile`.

@@ -41,6 +41,7 @@ class ToolConfigPatch:
     _additions: dict[str, object]
 
     def __new__(cls, data: Mapping[str, object]) -> Self:
+        """Find the standard tables the parsed pyproject.toml ``data`` lacks."""
         self = super().__new__(cls)
         tool_raw = data.get("tool")
         tool = cast("dict[str, object]", tool_raw) if isinstance(tool_raw, dict) else {}
@@ -67,11 +68,11 @@ class ToolConfigPatch:
         return not self._additions
 
     def fragment(self) -> str:
-        """The missing tables as TOML text with ``\\n`` line endings."""
+        r"""Render the missing tables as TOML text with ``\n`` line endings."""
         return tomli_w.dumps({"tool": self._additions})
 
     def appended_to(self, text: str, data: Mapping[str, object]) -> str | None:
-        """``text`` with the missing tables appended, or ``None`` when unsafe.
+        """Return ``text`` with the missing tables appended, or ``None`` when unsafe.
 
         Appending is only valid TOML when it parses and means what was
         intended: a table defined as an inline value (``ruff = {...}``)
@@ -93,7 +94,7 @@ class ToolConfigPatch:
     def _merged(
         cls, base: Mapping[str, object], extra: Mapping[str, object]
     ) -> dict[str, object]:
-        """``base`` with the tables of ``extra`` merged in, recursively."""
+        """Return ``base`` with the tables of ``extra`` merged in, recursively."""
         merged = dict(base)
         for key, value in extra.items():
             current = merged.get(key)

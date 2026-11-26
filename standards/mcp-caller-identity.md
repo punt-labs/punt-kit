@@ -370,7 +370,7 @@ user's session by naming its `session_id`.
 ethos resolves the caller's `session_id` and `agent_id` to the exact
 participant in the session roster: the persona a call acts as, the mission a
 delegation belongs to, and the gate on each tool. The engine is the
-`ethos serve` MCP process over stdio. ethos holds a per-session roster, so it
+MCP server process over stdio. ethos holds a per-session roster, so it
 is a layer-2 engine (§ 4.1); it is daemonless, so it is exempt from the § 4.2
 lifecycle until it grows a daemon, and it resolves each call from the facts
 on that call. The handle is the caller facts themselves (§ 4.4): the roster at

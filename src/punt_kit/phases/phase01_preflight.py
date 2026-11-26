@@ -1,11 +1,11 @@
-"""Phase 1: pre-flight checks — clean tree, up to date with origin, ready
-siblings, and (unless dry-run) quality gates."""
+"""Check release prerequisites and run quality gates."""
 
 from __future__ import annotations
 
 import shlex
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Self, cast, final
 
+from packaging.requirements import InvalidRequirement, Requirement
 from rich.console import Console
 
 from punt_kit.phases.phase10_homebrew import has_brew_formula_target
@@ -25,24 +25,15 @@ if TYPE_CHECKING:
 
 _console = Console()
 
-# Repo-relative paths of tracked Config-zone files a *running daemon*
-# rewrites continuously (standards/punt-labs-dir.md § 7). A repo with an
-# active vox session routinely shows this file `modified` in the working
-# tree even though nothing about the release is at stake — the clean-tree
-# gate below still fails the release (no auto-stash — see the gate's
-# comment), but names the exact stash command instead of the generic
-# dirty-tree message when this is the *only* thing dirty. Deliberately a
-# small, explicit allowlist rather than a path-shape heuristic: lux's
-# `.punt-labs/lux/config.md` looks identical in shape but is NOT
-# daemon-rewritten (only `enable`/`disable` write it), so it must not be
-# on this list. Extend it only when a standard names another file as
-# continuously daemon-rewritten.
+# Keep an explicit allowlist of daemon-written Config-zone paths
+# (standards/punt-labs-dir.md PLD-7), not a path-shape heuristic:
+# Lux's .punt-labs/lux.md has a separate display-mode API.
 _DAEMON_MUTABLE_PATHS = frozenset({".punt-labs/vox/vox.md"})
 
 
 @final
 class Phase1Preflight:
-    """Phase 1: pre-flight checks."""
+    """Check release prerequisites and run quality gates."""
 
     __slots__ = ("_dry_run", "_info", "_ops")
 
@@ -51,6 +42,7 @@ class Phase1Preflight:
     _ops: ReleaseOps
 
     def __new__(cls, info: ProjectInfo, *, dry_run: bool, ops: ReleaseOps) -> Self:
+        """Create the phase with its release inputs and operations."""
         self = super().__new__(cls)
         self._info = info
         self._dry_run = dry_run
@@ -58,12 +50,20 @@ class Phase1Preflight:
         return self
 
     def run(self) -> None:
+        """Check release prerequisites and run quality gates.
+
+        Raises:
+            ReleaseError: A repository, changelog, script, or quality gate fails
+                validation.
+            subprocess.CalledProcessError: A checked repository command fails.
+            subprocess.TimeoutExpired: An external command exceeds its timeout.
+        """
         info = self._info
         dry_run = self._dry_run
         ops = self._ops
         _console.print("\n[bold]Phase 1: Pre-flight[/bold]")
+        self.check_dependencies()
 
-        # 1a. Git state
         branch = ops.run(
             ["git", "branch", "--show-current"], cwd=str(info.root)
         ).stdout.strip()
@@ -71,14 +71,7 @@ class Phase1Preflight:
             ops.fail(f"Must be on main branch (currently on '{branch}')")
         ops.ok("On main branch")
 
-        # Not `.stdout.strip()` — porcelain's XY status code can start with
-        # a literal space (e.g. " M path" for an unstaged-only
-        # modification), and stripping the whole block eats that space
-        # whenever it lands as the very first character of the output
-        # (the alphabetically-first dirty path), corrupting `ln[3:]`
-        # below by one character. `splitlines()` on the raw stdout needs
-        # no such strip — a trailing newline produces no extra element,
-        # and an empty status yields an empty list either way.
+        # Preserve porcelain's leading XY status space so ln[3:] slices the path.
         status = ops.run(["git", "status", "--porcelain"], cwd=str(info.root)).stdout
         dirty_lines: list[str] = []
         untracked_lines: list[str] = []
@@ -93,10 +86,8 @@ class Phase1Preflight:
         if dirty_lines:
             ops.fail(self._dirty_tree_message(dirty_lines, untracked_lines))
         if untracked_lines:
-            # Untracked files at release time are almost always noise (temp
-            # files, forgotten artifacts) that must not ride along in
-            # release commits — force the operator to commit, gitignore, or
-            # remove them.
+            # Require explicit handling of untracked files to keep them out of release
+            # commits.
             untracked = "\n".join(untracked_lines)
             ops.fail(
                 "Untracked files present — commit, gitignore, or remove them "
@@ -123,7 +114,6 @@ class Phase1Preflight:
             ops.fail(f"Not up to date with origin/main:\n{diff.stdout.strip()}")
         ops.ok("Up to date with origin/main")
 
-        # 1b. Project type (already detected)
         if info.is_hybrid:
             ptype = "hybrid"
         elif info.is_plugin:
@@ -139,23 +129,16 @@ class Phase1Preflight:
                 ops.fail("Missing release-plugin.sh or restore-dev-plugin.sh")
             ops.ok("Release/restore scripts present")
 
-            # A prior release cut outside this flow (a corrective/manual tag)
-            # leaves the highest tag's plugin manifest in a shape this
-            # release did not produce — warn loudly rather than fail, since
-            # the release under way is exactly how the situation gets fixed.
+            # Warn rather than block: this release can correct a stale tagged manifest.
             self._warn_stale_prior_tag(info)
 
-        # 1c. Changelog check
         Changelog(info.root, ops=ops).require_unreleased_entries()
         ops.ok("Changelog has unreleased entries")
 
-        # 1d. Sibling repos (propagation targets) must be clean and on main.
-        # Check early so we fail before quality gates, not mid-propagation.
-        # Also catches stale propagation branches from prior releases.
+        # Validate propagation targets before running expensive quality gates.
         siblings_checked = 0
         for sib_name in PROPAGATION_SIBLINGS:
-            # The tap is checked only for a project that propagates into it: a
-            # dirty tap must not block releases of projects that never touch it.
+            # A dirty tap must not block a project that does not propagate into it.
             if sib_name == TAP_SIBLING and not has_brew_formula_target(info.root):
                 continue
             sibling = SiblingRepo.resolve(info.root, sib_name, ops=ops)
@@ -167,16 +150,12 @@ class Phase1Preflight:
         else:
             ops.info("No sibling repos found (propagation will be skipped)")
 
-        # 1e. Quality gates
         if not dry_run and info.language == "python":
             ops.info("Running quality gates...")
             makefile = info.root / "Makefile"
             if makefile.exists():
-                # Prefer the project's own Makefile — a project with optional
-                # heavy extras (e.g. a `[display]` extra, pyright-via-npx, an
-                # OO ratchet) knows how to gate itself. Bare `uv run
-                # mypy/pyright` against the base wheel env reports false
-                # errors for code that only imports the extra.
+                # The project's Makefile accounts for optional extras and
+                # project-specific gates.
                 result = ops.run(
                     ["make", "check"],
                     cwd=str(info.root),
@@ -233,33 +212,47 @@ class Phase1Preflight:
         elif dry_run:
             ops.dry("Would run quality gates")
 
+    def check_dependencies(self) -> None:
+        """Reject dependencies PyPI cannot accept before release side effects."""
+        project = cast(
+            "dict[str, object]", (self._info.pyproject or {}).get("project", {})
+        )
+        groups = {
+            "[project].dependencies": cast("list[str]", project.get("dependencies", []))
+        }
+        optional = cast(
+            "dict[str, list[str]]", project.get("optional-dependencies", {})
+        )
+        groups.update(
+            (f"[project.optional-dependencies].{name}", dependencies)
+            for name, dependencies in optional.items()
+        )
+        for group, dependencies in groups.items():
+            for dependency in dependencies:
+                try:
+                    requirement = Requirement(dependency)
+                except InvalidRequirement:
+                    self._ops.fail(
+                        f"Invalid project dependency; fix {group} before releasing"
+                    )
+                if requirement.url:
+                    context = (
+                        "" if group == "[project].dependencies" else f" in {group}"
+                    )
+                    self._ops.fail(
+                        f"Direct URL dependency{context}: publish {requirement.name} "
+                        "to PyPI and pin a version before releasing"
+                    )
+
     def _dirty_tree_message(
         self, dirty_lines: list[str], untracked_lines: list[str]
     ) -> str:
         """Build the "working tree is not clean" failure message.
 
-        ``dirty_lines`` are raw ``git status --porcelain`` lines for
-        tracked, modified paths. When every dirty path is a known
-        daemon-mutable settings file (``_DAEMON_MUTABLE_PATHS``), the
-        message names the exact stash command instead of the generic
-        dump — the common case for a repo with an active vox session.
-        Mixed dirt (a daemon file plus anything else tracked) keeps the
-        generic message shape, since the operator still has real cleanup
-        to do, but still calls out which paths are daemon-mutable so the
-        stash step isn't rediscovered by hand.
-
-        ``untracked_lines`` is folded in whenever non-empty, even in the
-        daemon-only case: ``ops.fail`` raises immediately, so a
-        daemon-only-dirty message that omits an untracked file would send
-        the operator through a stash only to hit a second, invisible
-        failure on the very next run. One failure reports the
-        whole picture.
-
-        This does not auto-stash, because stashing would touch the
-        interrupt/resume paths, and it recommends ``--index`` on
-        the pop, because a bare ``git stash pop`` restores file content
-        but not staged status, silently turning a staged settings change
-        into an unstaged one.
+        Accept raw porcelain lines and report tracked and untracked dirt
+        together. Identify daemon-mutable paths and suggest a scoped stash.
+        Leave stashing to the operator to avoid interrupt/resume state changes;
+        recommend pop --index to preserve staged status as well as content.
         """
         dirty = "\n".join(dirty_lines)
         daemon_paths = sorted(
@@ -273,12 +266,8 @@ class Phase1Preflight:
             stash_cmd = "git stash push -- " + " ".join(
                 shlex.quote(p) for p in daemon_paths
             )
-            # vox.md is written on demand — an MCP switch tool call inside
-            # a running session — not on a fixed schedule, so it can be
-            # rewritten again between the stash and the release's next
-            # clean-tree check. The hint is a point-in-time fix, not a
-            # guarantee; say so rather than implying the daemon can't
-            # undo it.
+            # A live vox session can rewrite the file between the stash and the next
+            # check.
             race_caveat = (
                 "A running vox session can rewrite this file again before "
                 "the release re-checks — stop the session first, or "
@@ -287,7 +276,7 @@ class Phase1Preflight:
             if len(daemon_paths) == len(dirty_lines):
                 message = (
                     "Working tree has only daemon-mutable settings files "
-                    f"dirty (standards/punt-labs-dir.md § 7):\n{dirty}\n\n"
+                    f"dirty (standards/punt-labs-dir.md PLD-7):\n{dirty}\n\n"
                     "If this is a deliberate settings change you want in "
                     "the release, commit it instead. Otherwise, stash it "
                     "before releasing and restore it after:\n"
@@ -300,7 +289,7 @@ class Phase1Preflight:
                 message = (
                     f"Working tree is not clean:\n{dirty}\n\n"
                     "Note: the following are daemon-mutable settings "
-                    f"files (standards/punt-labs-dir.md § 7):\n{daemon_list}"
+                    f"files (standards/punt-labs-dir.md PLD-7):\n{daemon_list}"
                     "\n\nIf the change is deliberate, commit it; "
                     "otherwise, once the rest is cleaned up, stash and "
                     f"restore it with `{stash_cmd}` / "
@@ -317,16 +306,8 @@ class Phase1Preflight:
     def _warn_stale_prior_tag(self, info: ProjectInfo) -> None:
         """Warn when the highest existing tag's plugin manifest is stale.
 
-        A tag cut outside ``punt release`` (a hand-run corrective release, an
-        aborted run that still pushed a tag, etc.) can leave the manifest at
-        that tag in the dev shell's name or at a version that does not match
-        the tag itself. Neither condition blocks the release under way —
-        that release is exactly what corrects it — but an operator who did
-        not expect the prior tag to be out of shape needs to know.
-
-        Silent when there are no tags at all, or when the manifest did not
-        exist at the highest tag's path (a pre-DES-025 layout move since that
-        tag, or a genuinely fresh project) — there is nothing to compare.
+        Skip absent tags or manifests. A dev name or mismatched version warrants
+        a warning, not a failure: this release can correct either condition.
         """
         ops = self._ops
         tag_result = ops.run(

@@ -44,11 +44,11 @@ terminal, and that consumer's needs leaked into the data:
   know whether a finding failed has to know the markup.
 - **Rule identity is absent.** No element says which standard or which
   section a finding enforces. `audit_layout.py` smuggles the section into the
-  detail text: `(§ 9.1: no migration)` at `src/punt_kit/audit_layout.py:380`,
-  `(§ {row.section} {row.path_naming(name)} → {destination})` at line 385,
-  `(§ {row.section} → {row.destination})` at line 396, and
-  `no § 9.4 live path is git-tracked` at line 399; the `§ 8` the module
-  enforces appears only in its docstring at line 1. Every other module
+  detail text: `(PLD-10: no migration)`,
+  `({row.section} {row.path_naming(name)} → {destination})`,
+  `({row.section} → {row.destination})`, and
+  `no PLD-2 live path is git-tracked`; the PLD-11 contract the module
+  enforces appears in its docstring. Every other module
   names nothing. The epic's judgment examiner
   must tag each finding with its standard section (DES-023 rule 3), and the
   tuple has nowhere to put it.
@@ -458,7 +458,7 @@ Each module's rewrite is one commit and one mission, and the four run in
 parallel once `audit_finding.py`, `audit_verdict.py`, and
 `audit_report.py` exist (§ 9, wave 2). Rule assignment follows the module
 docstrings that already name a standard: `audit_layout.py:1` names
-`punt-labs-dir.md § 8`; `audit_permissions.py:1` and the `permissions.md`
+`punt-labs-dir.md PLD-11`; `audit_permissions.py:1` and the `permissions.md`
 § 1 reference at `audit_permissions.py:196`; `_check_makefile` names
 `makefile.md` (`audit.py:415`); `_check_plugin_dev_isolation` names
 `plugins.md` (`audit.py:507-508`). A check whose docstring names no

@@ -42,19 +42,11 @@ def init_git_repo(path: Path) -> None:
     git(["init", "-b", "main"], cwd=d)
     git(["config", "user.email", "test@test.com"], cwd=d)
     git(["config", "user.name", "Test"], cwd=d)
-    # Pin line-ending handling so fixtures round-trip byte-for-byte. A host
-    # with core.autocrlf=input (git's suggested macOS/Linux default) converts
-    # CRLF to LF on `git add` but does not convert back on checkout, so the
-    # restored bytes lose their CRLF and the dev-restore CRLF/BOM round-trip
-    # tests fail on that host while passing in CI, where autocrlf is unset.
-    # (autocrlf=true also converts on add but restores CRLF on checkout, so it
-    # round-trips; pinning false removes git's line-ending machinery entirely.)
+    # Preserve fixture bytes across git add and checkout, including CRLF.
     git(["config", "core.autocrlf", "false"], cwd=d)
-    # A dev host with a global commit.gpgsign=true would make these temp-repo
-    # commits attempt signing, which can prompt, stall, or fail. Pin it off so
-    # the fixtures commit deterministically regardless of host git config.
+    # Prevent global signing settings from prompting or blocking fixture commits.
     git(["config", "commit.gpgsign", "false"], cwd=d)
-    # Create initial commit so HEAD exists
+    # Release commands need a resolvable HEAD.
     (path / ".gitkeep").write_text("")
     git(["add", "."], cwd=d)
     git(["commit", "-m", "init"], cwd=d)
@@ -66,16 +58,13 @@ def init_git_repo(path: Path) -> None:
 def make_release_project(tmp_path: Path, *, subdir: bool = False) -> Path:
     """Create a minimal Python project ready for release testing.
 
-    ``subdir`` selects the DES-025 layout, where the plugin surface lives
-    under ``plugin/``.
+    If subdir is set, place the plugin surface under plugin/.
     """
     root = tmp_path / "proj"
     root.mkdir()
 
-    # Init git first with bare commit
     init_git_repo(root)
 
-    # Now write project files
     (root / "pyproject.toml").write_text(
         '[project]\nname = "test-pkg"\nversion = "0.1.0"\n\n'
         "[project.scripts]\ntest-cli = 'test_pkg:main'\n"
@@ -109,10 +98,7 @@ def make_release_project(tmp_path: Path, *, subdir: bool = False) -> Path:
         ' -m "chore: restore dev plugin state"\n'
     )
 
-    # Placeholder so info.workflow_files includes "release.yml" — Phase 6
-    # (_phase6_ci_wait) fails fast when it's absent for a hybrid/non-plugin
-    # project. Content is irrelevant; only the filename matters
-    # to detect().
+    # Phase 6 requires release.yml except for pure plugins.
     workflows_dir = root / ".github" / "workflows"
     workflows_dir.mkdir(parents=True)
     (workflows_dir / "release.yml").write_text("")
@@ -297,7 +283,6 @@ def make_compliant_hybrid(tmp_path: Path) -> None:
     """Create a compliant hybrid project (CLI + plugin) scaffold."""
     make_compliant_python(tmp_path)
 
-    # Add CLI entry point and version to pyproject.toml
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "test"\nversion = "1.0.0"\n\n'
         "[project.scripts]\ntest-cli = 'test_pkg:main'\n\n"
@@ -324,7 +309,7 @@ def make_compliant_hybrid(tmp_path: Path) -> None:
         + "\n"
     )
 
-    # Re-detect after pyproject.toml rewrite (now has CLI entry point + plugin)
+    # Detect the CLI entry point and plugin added to the fixture.
     info = detect(tmp_path)
     (tmp_path / ".claude" / "settings.json").write_text(
         json.dumps(

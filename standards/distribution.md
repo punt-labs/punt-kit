@@ -1,6 +1,6 @@
 # Distribution Standards
 
-**Updated:** 2026-10-26
+**Updated:** 2026-11-24
 
 How each of a tool's surfaces is shipped and installed. For what the surfaces
 are — the engine-and-clients model — see
@@ -20,7 +20,7 @@ definitions and the principle). One surface can ship through several channels:
 | Library | PyPI (`uv add punt-<name>`) |
 | CLI | PyPI (`uv tool install punt-<name>`) |
 | MCP server | `claude mcp add` (standalone), plugin `mcpServers` (hybrid), or `.mcpb` one-click bundle (Claude Desktop) |
-| REST API | `<tool> serve` (HTTP) |
+| REST API | HTTP endpoint |
 
 The plugin shell and the `.mcpb` desktop bundle are channels for the MCP
 surface, not separate surfaces; a native app is a channel for a platform-native
@@ -175,7 +175,7 @@ scripts:
   every `ssh` command must use `-n`. Without this, `curl | sh` execution
   silently stops when a child process consumes pipe bytes (DES-006).
 - **VERSION pin (mandatory)** — every `install.sh` MUST declare `VERSION="X.Y.Z"`
-  near the top and use `uv tool install --force "$PACKAGE==$VERSION"`. The `punt release`
+  near the top and use `uv tool install --force "$PACKAGE==$VERSION"`. The `punt release run`
   CLI bumps this pin automatically during Phase 2. Without a VERSION pin, install is
   non-deterministic: `uv tool install` fetches latest from PyPI, which may not match the
   SHA pinned in `install-all.sh` or the project README. This has caused real version
@@ -196,10 +196,10 @@ updates follow the same sequence.
 
 | Location | What's pinned | Updated by |
 |----------|--------------|------------|
-| Project README | `raw.githubusercontent.com/<org>/<repo>/<SHA>/install.sh` | `punt release` Phase 9 (post-release PR) |
-| `install-all.sh` | `$GH/<project>/<SHA>/install.sh` for each child project | `punt release` Phase 10a (sibling PR) |
-| Org profile README | `raw.githubusercontent.com/punt-labs/punt-kit/<SHA>/install-all.sh` | `punt release` Phase 10c (sibling PR, punt-kit only) |
-| `public-website` `projects.json` | `installCommand` field per project | `punt release` Phase 10d (sibling PR) |
+| Project README | `raw.githubusercontent.com/<org>/<repo>/<SHA>/install.sh` | `punt release run` Phase 9 (post-release PR) |
+| `install-all.sh` | `$GH/<project>/<SHA>/install.sh` for each child project | `punt release run` Phase 10a (sibling PR) |
+| Org profile README | `raw.githubusercontent.com/punt-labs/punt-kit/<SHA>/install-all.sh` | `punt release run` Phase 10c (sibling PR, punt-kit only) |
+| `public-website` `projects.json` | `installCommand` field per project | `punt release run` Phase 10d (sibling PR) |
 
 **Manual fallback** (when automation fails or for ad-hoc changes):
 
@@ -211,7 +211,7 @@ updates follow the same sequence.
 
 ### README install SHA auto-update (Phase 9)
 
-During `punt release`, the project README's `install.sh` URL is automatically updated
+During `punt release run`, the project README's `install.sh` URL is automatically updated
 in the post-release phase:
 
 1. Phase 4 merges the release PR to main (via squash-merge)
@@ -226,7 +226,7 @@ version bump. Phase 9 runs after the tag exists.
 
 ### Cross-repo propagation (Phase 10)
 
-`punt release` Phase 10 handles all cross-repo SHA and version propagation
+`punt release run` Phase 10 handles all cross-repo SHA and version propagation
 locally. All sibling repos must be checked out as siblings in the same parent
 directory (`../punt-kit`, `../claude-plugins`, `../.github`,
 `../public-website`). Each propagation step creates a branch, commits the
@@ -439,26 +439,7 @@ scope leaks credentials, creates confusion, or fails silently.
 
 ### Per-repo config files
 
-**Projects with per-repo state use the config zone, `.punt-labs/<tool>/config.*`
-— never a dotfile at the git root.** No per-repo tool artifact lives at the
-repo root, in any form ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)).
-A legacy root dotfile is migrated to the tool's config-zone destination:
-
-| Project | Legacy config file | Config-zone destination | Contents |
-|---------|--------------------|--------------------------|----------|
-| Biff | `.biff` | `.punt-labs/biff/config.yaml` | Team roster, relay URL, auth credentials |
-
-The migration from legacy dotfile to config zone is
-[punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)'s root-sentinel table; it
-never deletes a file that still holds settings. Quarry has no legacy shape:
-its config is `.punt-labs/quarry/config.md` (YAML frontmatter), deposited
-directly at the config-zone destination
-([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)).
-
-**`.beads/` is not a row in this table because it is out of scope for the
-migration entirely** — [punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)
-states the canonical exemption. There is no legacy shape of `.beads/` to
-migrate.
+Per-repo paths, exemptions and legacy destinations: [layout policy](punt-labs-dir.md) and [compatibility reference](../docs/repo-layout.md#compatibility-inventory).
 
 The config file should be committed to git (minus secrets). Secrets belong in
 environment variables or a `.local` file that is gitignored.

@@ -6,8 +6,6 @@ land in the enabled repo's ``<repo>/.claude/settings.json`` only, never the
 user-global ``~/.claude/settings.json``, and ``punt disable`` removes exactly
 the same set (``permissions.md`` §6, ``tool-enable-disable.md`` §2.10). The
 ``punt-dev`` plugin's rules are never granted: maintainers add them by hand.
-
-Ported from biff's ``claude_permissions.py`` (copy-not-symlink, §2.4).
 """
 
 from __future__ import annotations
@@ -28,11 +26,8 @@ if TYPE_CHECKING:
 
 __all__ = ["PUNT_RULES", "PermissionChange", "ProjectPermissions"]
 
-# Broad allow with exact ask carve-outs (permissions.md §6): ask beats allow,
-# so the commands that edit files or run release work keep prompting while new
-# safe commands work without a rule update. ``Bash(punt:*)`` is the ``punt
-# init`` baseline (permissions.md §3), so it is not in this set. enable adds
-# every missing member, disable removes these exact values.
+# Ask beats allow, so release and editing commands still prompt.
+# The Bash(punt:*) rule belongs to the punt repo init baseline.
 PUNT_RULES: Final[dict[str, tuple[str, ...]]] = {
     "allow": ("Skill(punt:*)",),
     "ask": tuple(f"Skill(punt:{cmd})" for cmd in ("auto", "reconcile")),
@@ -82,6 +77,7 @@ class ProjectPermissions:
     _root: Path
 
     def __new__(cls, root: Path) -> Self:
+        """Create an editor for the repository at ``root``."""
         self = super().__new__(cls)
         self._root = root
         return self

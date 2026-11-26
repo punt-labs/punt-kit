@@ -1,4 +1,4 @@
-"""Shared collaborators used by release phases — git, GitHub, siblings, etc.
+"""Share release helpers for Git, GitHub, and sibling repositories.
 
 Each module is imported directly by phase modules and by ``punt_kit.release``
 — this package re-exports nothing.

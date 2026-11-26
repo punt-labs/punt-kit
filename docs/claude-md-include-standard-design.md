@@ -96,7 +96,7 @@ same repo config, identical output.
 
 Every tool CLI with per-repo presence exposes two commands, run from inside a
 repo. This extends the `enable` / `disable` entry in
-[cli.md § Required Subcommands](../standards/cli.md#enable--disable).
+[Tool Enable/Disable §2.3](../standards/tool-enable-disable.md#23-the-enable--disable-convention).
 
 **`enable`** — idempotent; re-running is also the upgrade path:
 

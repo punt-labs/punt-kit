@@ -1,4 +1,4 @@
-"""Finding and rewriting a ``name = "version"`` assignment in a source file."""
+"""Find and rewrite named version assignments in source text."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ _BARE_WORD = r"[^\s\"'`$;&|<>(){}\\#]*"
 
 @final
 class VersionAssignment:
-    """A version assigned to ``name`` on one line, as a quoted string literal.
+    """Recognize literal and computed assignments to a version variable.
 
     The text rule for ``pyproject.toml``'s ``version`` and ``install.sh``'s
     ``VERSION``, shared by the Phase 2 bump and the Phase 11 check so they
@@ -48,6 +48,15 @@ class VersionAssignment:
     _is_shell: bool
 
     def __new__(cls, name: str, *, lead: str = "", is_shell: bool = False) -> Self:
+        """Recognize assignments to a named version variable.
+
+        Args:
+            lead: Regular expression allowed before the variable name.
+            is_shell: Exclude assignments inside here-document bodies.
+
+        Raises:
+            re.PatternError: ``lead`` produces an invalid assignment pattern.
+        """
         self = super().__new__(cls)
         head = rf"^{lead}{re.escape(name)}(?:[ \t]*:[^=\n]+)?[ \t]*="
         self._assigned = re.compile(head, re.MULTILINE)
@@ -59,7 +68,7 @@ class VersionAssignment:
 
     @classmethod
     def in_shell(cls, name: str) -> Self:
-        """The rule for a shell script, where the assignment may be indented.
+        """Build a shell assignment rule that permits indentation.
 
         ``readonly``, ``export``, ``local`` and ``declare`` (with flags) may
         precede it: ``  readonly -r VERSION="1.0"``. The name is still
@@ -89,7 +98,7 @@ class VersionAssignment:
         return cls(name, lead=_SHELL_LEAD, is_shell=True)
 
     def is_assigned(self, text: str) -> bool:
-        """True when ``text`` assigns the name at the start of some line."""
+        """Check for an assignment at the start of a line."""
         return next(iter(self._heads(text)), None) is not None
 
     def assigned_lines(self, text: str) -> tuple[str, ...]:
@@ -105,7 +114,7 @@ class VersionAssignment:
         )
 
     def _heads(self, text: str) -> list[re.Match[str]]:
-        """The assignments, in order; a shell's skip the bodies of here-documents."""
+        """Find assignments in order, excluding shell here-document bodies."""
         heads = list(self._assigned.finditer(text))
         if not self._is_shell or not heads:
             return heads
@@ -113,7 +122,7 @@ class VersionAssignment:
         return [m for m in heads if not bodies.contains(m.start())]
 
     def is_pinned_to(self, text: str, value: str) -> bool:
-        """True when the first value is plain and every plain one is ``value``.
+        """Check that the first value is plain and every plain value matches.
 
         An empty reset (``VERSION=""``) is not a value, so it neither matches
         nor spoils the others; a file with nothing but resets is not pinned.
@@ -124,7 +133,7 @@ class VersionAssignment:
         return all(found in (None, value) for found in values)
 
     def assigns_a_value(self, text: str) -> bool:
-        """True when some assignment is a value: plain or computed, not a reset."""
+        """Check for a plain or computed assignment other than a reset."""
         return bool(self.values(text))
 
     def rewritten(self, text: str, value: str) -> tuple[str, int]:
@@ -146,7 +155,7 @@ class VersionAssignment:
 
     # None marks a computed value, which no literal can stand in for.
     def values(self, text: str) -> tuple[str | None, ...]:
-        """The value of each assignment in order; ``None`` for a computed one.
+        """Return each assignment value, using ``None`` for computed values.
 
         An empty reset (``VERSION=""``) is deliberate, not a value, and is left out.
         """
@@ -184,7 +193,7 @@ class VersionAssignment:
         return tuple(described)
 
     def _rewritable(self, text: str) -> list[re.Match[str]]:
-        """The matches to rewrite: all plain ones, when the first is plain."""
+        """Select all plain assignments if the first is plain."""
         first = self._readable(text)
         if first is None:
             return []
@@ -196,12 +205,12 @@ class VersionAssignment:
 
     @staticmethod
     def _is_reset(match: re.Match[str]) -> bool:
-        """True for an empty value, ``""`` or bare: a reset, never rewritten."""
+        """Recognize bare or quoted empty values as resets exempt from rewrites."""
         return match.group(3) == ""
 
     # None: no plain literal supplies the value; the caller reports it unreadable.
     def _readable(self, text: str) -> re.Match[str] | None:
-        """The match that supplies the value, or ``None`` when it is not plain."""
+        """Locate the match that supplies a plain value, if any."""
         if not self._is_shell:
             return self._quoted.search(text)
         first = next(iter(self._heads(text)), None)
@@ -211,7 +220,7 @@ class VersionAssignment:
 
     # None: the assignment at ``start`` is computed, not a plain literal.
     def _value_at(self, text: str, start: int) -> re.Match[str] | None:
-        """The value of the assignment at ``start``, if it is a plain literal."""
+        """Extract the plain literal at ``start``, if present."""
         match = self._quoted.match(text, start)
         if not self._is_shell:
             return match

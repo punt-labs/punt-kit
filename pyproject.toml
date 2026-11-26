@@ -1,6 +1,6 @@
 [project]
 name = "punt-kit"
-version = "0.18.0"
+version = "0.20.0"
 description = "Standards, scaffolding, and compliance tooling for Punt Labs projects"
 requires-python = ">=3.13"
 authors = [{ name = "Punt Labs" }]
@@ -10,10 +10,11 @@ classifiers = [
     "Development Status :: 4 - Beta",
 ]
 dependencies = [
-    "typer>=0.15.0",
+    "punt-observe==0.1.1",
+    "typer>=0.29.1,<0.30",
     "rich>=13.0.0",
-    "tomli>=2.0.0;python_version<'3.11'",
     "tomli-w>=1.0.0",
+    "tomlkit>=0.14.0",
     "jinja2>=3.1.0",
     "markdown-it-py>=3.0.0",
     "packaging>=24.0",
@@ -22,9 +23,19 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
+    "pytest-cov>=6.0.0",
     "ruff>=0.11.0",
     "mypy>=1.15.0",
     "pyright>=1.1.0",
+    "punt-oo-ratchet==0.4.0",
+    "pydoclint==0.12.0",
+    "docstring-parser-fork==0.0.16",
+    "markdown==3.11.3",
+    "types-markdown>=3.10,<4",
+]
+docs = [
+    "mkdocs>=1.6.1",
+    "mkdocstrings[python]>=1.0.8",
 ]
 
 [project.urls]
@@ -49,7 +60,17 @@ target-version = "py313"
 extend-exclude = [".docs/native-harness-plan/sources", ".claude"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "TCH"]
+select = ["E", "F", "I", "UP", "B", "SIM", "TCH", "LOG", "G", "T20"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pydoclint]
+style = "google"
+arg-type-hints-in-docstring = false
+skip-checking-short-docstrings = false
+allow-init-docstring = true
+check-style-mismatch = true
 
 [tool.mypy]
 python_version = "3.13"
@@ -70,5 +91,136 @@ typeCheckingMode = "strict"
 allow_emails = ["hello@punt-labs.com"]
 ignore_files = ["tests/test_pii.py", ".beads/*"]
 
+[tool.oo-ratchet.layers]
+entry = [
+    "punt_kit.__main__",
+    "punt_kit.cli",
+    "punt_kit.cli_release",
+    "punt_kit.cli_repo",
+    "punt_kit.audit",
+    "punt_kit.doctor",
+    "punt_kit.init",
+    "punt_kit.pii_checkout",
+    "punt_kit.seed",
+]
+adapters = [
+    "punt_kit.audit_github",
+    "punt_kit.audit_report",
+    "punt_kit.claude_markers",
+    "punt_kit.claude_md",
+    "punt_kit.claude_permissions",
+    "punt_kit.command_span",
+    "punt_kit.cli_options",
+    "punt_kit.cli_output",
+    "punt_kit.detect",
+    "punt_kit.git_checkout",
+    "punt_kit.install",
+    "punt_kit.install_git",
+    "punt_kit.init_beads",
+    "punt_kit.logging_config",
+    "punt_kit.paths",
+    "punt_kit.pii",
+    "punt_kit.cli_group",
+    "punt_kit.status_view",
+    "punt_kit.phases.shared.changelog",
+    "punt_kit.phases.shared.ci_run",
+    "punt_kit.phases.shared.command_diagnostics",
+    "punt_kit.phases.shared.command_runner",
+    "punt_kit.phases.shared.gh",
+    "punt_kit.phases.shared.git",
+    "punt_kit.phases.shared.github_repo",
+    "punt_kit.phases.shared.json_file",
+    "punt_kit.phases.shared.local_main_sync",
+    "punt_kit.phases.shared.main_sync_git",
+    "punt_kit.phases.shared.phase_diagnostics",
+    "punt_kit.phases.shared.pin_currency",
+    "punt_kit.phases.shared.plugin_swap",
+    "punt_kit.phases.shared.pr_merge",
+    "punt_kit.phases.shared.pr_threads",
+    "punt_kit.phases.shared.project_info",
+    "punt_kit.phases.shared.release_tag_file",
+    "punt_kit.phases.shared.reporter",
+    "punt_kit.phases.shared.siblings",
+    "punt_kit.phases.shared.text_file",
+    "punt_kit.phases.shared.user_service",
+    "punt_kit.phases.shared.wheel_contents",
+    "punt_kit.phases.shared.wheel_probe",
+    "punt_kit.phases.shared.wheel_version",
+]
+application = [
+    "punt_kit.audit_layout",
+    "punt_kit.audit_permissions",
+    "punt_kit.enablement",
+    "punt_kit.status",
+    "punt_kit.release",
+    "punt_kit.phases",
+    "punt_kit.phases.shared",
+    "punt_kit.phases.phase01_preflight",
+    "punt_kit.phases.phase02_version_bump",
+    "punt_kit.phases.phase03_build",
+    "punt_kit.phases.phase04_release_pr",
+    "punt_kit.phases.phase05_tag",
+    "punt_kit.phases.phase06_ci_wait",
+    "punt_kit.phases.phase07_github_release",
+    "punt_kit.phases.phase08_verify_pypi",
+    "punt_kit.phases.phase09_post_release",
+    "punt_kit.phases.phase10_homebrew",
+    "punt_kit.phases.phase10_propagate",
+    "punt_kit.phases.phase10_website",
+    "punt_kit.phases.phase11_checks",
+    "punt_kit.phases.phase11_verify",
+    "punt_kit.phases.phase11_versions",
+    "punt_kit.phases.shared.pipeline",
+    "punt_kit.phases.shared.project_remote",
+    "punt_kit.phases.shared.readme_sha",
+    "punt_kit.phases.shared.release_versions",
+    "punt_kit.phases.shared.skips",
+    "punt_kit.phases.shared.workspace_versions",
+]
+domain = [
+    "punt_kit",
+    "punt_kit.adoption_table",
+    "punt_kit.audit_verdict",
+    "punt_kit.errors",
+    "punt_kit.phases.shared.errors",
+    "punt_kit.permission_rules",
+    "punt_kit.pii_matcher",
+    "punt_kit.tool_config",
+    "punt_kit.phases.shared.changelog_blocks",
+    "punt_kit.phases.shared.changelog_entry",
+    "punt_kit.phases.shared.changelog_parser",
+    "punt_kit.phases.shared.changelog_sections",
+    "punt_kit.phases.shared.entry_matcher",
+    "punt_kit.phases.shared.formula_version",
+    "punt_kit.phases.shared.git_listing",
+    "punt_kit.phases.shared.hook_firing",
+    "punt_kit.phases.shared.install_urls",
+    "punt_kit.phases.shared.module_version",
+    "punt_kit.phases.shared.ops",
+    "punt_kit.phases.shared.phase_order",
+    "punt_kit.phases.shared.pin_rules",
+    "punt_kit.phases.shared.repo_slug",
+    "punt_kit.phases.shared.shell_heredoc",
+    "punt_kit.phases.shared.timeouts",
+    "punt_kit.phases.shared.version_assignment",
+]
+
 [tool.pytest.ini_options]
+addopts = "-ra --strict-markers -m 'not quarantine'"
 testpaths = ["tests"]
+markers = [
+    "quarantine(issue, owner, reason, expires): temporarily exclude a tracked flaky test",
+]
+
+[tool.coverage.run]
+source = ["punt_kit"]
+branch = true
+patch = ["subprocess"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+precision = 2

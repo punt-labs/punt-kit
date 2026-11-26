@@ -13,7 +13,160 @@ All notable changes to this project will be documented in this file.
   agent files under `.claude/agents/` stay: `docs/WORKFLOW.md` names
   `gstack-qa` as the verification step of the merge gate.
 
+## [0.20.0] - 2026-11-25
+
+### Fixed
+
+- `punt release run` bumps uv workspace members that share the root version
+  and updates their matching exact dependency pins before refreshing `uv.lock`.
+- Release verification failures, including timeouts, name the resume phase
+  in JSON; failed checks are named even in quiet mode.
+- Claude Code setup keeps inherited Git command settings such as proxy and
+  CA options while replacing command-scoped URL rewrites, including rewrites
+  from configuration files included by command settings. Keep conditional
+  includes in Git config rather than passing them as command settings.
+
+- Derive the telemetry configuration path from Punt's shared home resolver
+  without moving the existing `~/.punt-labs/punt/config.toml` (PL-1450).
+
+- `punt repo scan-pii` no longer reads a JSON escape's letter as the start of an address
+  (`\n@pytest.fixture` is not an email; `\u003cnoreply@github.com` stays
+  allowlisted), reports each of two glued addresses (`a@x.io-b@y.io`) whole,
+  and reports `.local` hostnames with `%`, `+` or multi-label hosts that it
+  previously missed. Scanning a long line with no address is now linear, not
+  quadratic (PL-906).
+
+- Reconcile release-owned local main commits after a squash merge without
+  discarding unrelated commits or dirty worktrees; diagnose unsafe divergence
+  with recovery instructions, and preserve pre-reset main in
+  `refs/punt-release/main-before-sync` for recovery (PL-885).
+
+- `punt repo init` removes legacy `punt:begin` / `punt:end` sections from
+  `CLAUDE.md`, preserving surrounding prose and bare imports. Malformed or
+  unterminated markers skip stripping with a warning while still adding missing
+  standards references. Prose mentions are ordinary content; Makefile marker
+  sections are untouched.
+
 ### Added
+
+- Add `punt install` for Claude Code setup, `-h` at every command path,
+  and a single JSON result on stdout for each finite command.
+
+- Python release templates and punt-kit's own release workflow now install the
+  exact published version from PyPI and smoke-test the installed CLI after
+  publication.
+
+- Cross-repo [Testing standard](standards/testing.md) with seven trigger-based
+  tiers and traced implementation rules for Python, Go, Pharo, Swift, C and Rust.
+
+- Repository-local ethos check policy: advisory file checks on edit, blocking
+  staged checks and ratchets at commit, and the full gate at handoff. Requires
+  ethos v5.2.0, containing DES-085 and the Linux stdin-forwarding fix;
+  regenerated hooks capture payloads in Bash. See `docs/advisory-checks.md`.
+
+- Pharo logging and telemetry implementation rules: Beacon signals with one
+  shared durable logger per image session, private multi-image-safe rotation,
+  and privacy-safe OpenTelemetry capture through `opentelemetry-pharo` behind a
+  shared facade. The traceability checker requires Pharo coverage of `LOG-*`
+  and `TEL-*`.
+
+### Changed
+
+- Separate status rendering and command telemetry from the CLI adapter
+  without changing existing commands, output, or telemetry (PL-1519).
+
+- Move checkout actions to `punt repo init`, `punt repo audit`,
+  `punt repo scan-pii`, and `punt repo seed`, and releases to
+  `punt release run`. The old flat spellings are not supported.
+
+- Staged PII scans read default rules from regular files in the Git index,
+  and seeding a Makefile for an unsupported project type fails explicitly.
+
+- The [CLI standard](standards/cli.md) defines approved command maps,
+  finite JSON results, remote target selection, and per-command success.
+  Stable clauses trace to the Python and Go CLI rules. This does not
+  migrate any product's command tree.
+
+- A Nightly workflow runs `make test-nightly` (quarantines, coverage, the
+  installed-wheel smoke) on Ubuntu and macOS against `main` and walls the Biff
+  team on failure. `biff-notify` is re-rendered from biff's current template,
+  so it now passes the relay URL and token and reads its config from the
+  default branch.
+
+- Testing tiers follow the testing standard: `TESTING.md` maps each tier and
+  test kind and lists deviations (PL-1480). New `make hooks`,
+  `test-changed`, `test-push`, `coverage`, `coverage-ci`, `test-quarantine`
+  and `test-quarantine-run`; PR CI reports branch coverage. Tests own their
+  Git config, so a global `url.insteadOf` rewrite no longer fails them, and
+  quarantines need a Linear issue, owner, reason and a deadline within 14 days.
+
+- The release workflow installs the exact candidate wheel in a clean venv and
+  runs real `punt repo init`, `punt repo audit` and `punt status` operations before PyPI
+  publishes it; after publishing, the same operations run against the PyPI
+  package, whose wheel must be byte-identical to the candidate.
+  `make smoke-candidate` and a PR job run the candidate check on every change.
+
+- Give the home filesystem standard stable `FS-*` clauses and traced
+  Python/Go rules. Default tool-downloaded artifacts to the product cache,
+  honor explicit overrides, and declare `beadle` as the namespace for
+  `beadle-email` without moving any files. Repository layout, activation
+  and telemetry details now link to their governing standards.
+- Move the home cutover history out of filesystem policy: the legacy
+  `~/.biff/`, `~/.quarry/` and `~/.punt-vox/` paths were replaced by
+  `~/.punt-labs/biff/`, `~/.punt-labs/quarry/` and `~/.punt-labs/vox/`,
+  respectively.
+- Require the design shadow gate in `make check` and PR CI. Reject `would-fail`
+  verdicts, tool errors and invalid JSON while preserving the complete report in
+  the CI job summary on failure. Accepted `good-deed: trade` verdicts still pass;
+  existing ratchets remain unchanged.
+
+## [0.19.0] - 2026-11-22
+
+### Added
+
+- Report-only architecture layers and design diagnostics using
+  `punt-oo-ratchet==0.4.0`. `make design-shadow` compares against `origin/main`
+  (override `DESIGN_BASE`), `make report` includes a non-failing full design scan,
+  and PR CI appends the advisory verdict to its job summary even after a gate
+  fails. Neither design report gates `make check` or CI; existing gate policies
+  and baselines are unchanged.
+
+- Go logging and telemetry implementation rules with gates for private
+  multi-process-safe diagnostics and privacy-safe OpenTelemetry capture.
+  The traceability checker requires both Go and Python coverage.
+
+- Switched to `punt-observe==0.1.0` from PyPI; release preflight rejects
+  direct-reference dependencies before tagging as a general PyPI-compatibility check.
+
+- Private diagnostics and closed-schema local CLI telemetry through the
+  version-pinned shared `punt-observe` package; `PUNT_TELEMETRY=off` disables capture.
+  Includes concurrent SQLite safety, strict 5 MiB rotation caps, idle telemetry
+  pruning, fork hooks and exit flushing.
+
+- Standards and Rules standard (`standards/standards.md`): standards hold
+  language-neutral policy and no status, `lang-rules/<lang>/` holds each
+  language's implementation, every clause has a stable ID, and every rule
+  cites the clauses it implements and names its gate. `make check-standards`,
+  run by `make lint`, fails on duplicate, undefined, retired or uncited IDs.
+  It replaces `make check-policy-traceability`. The Markdown rules in
+  `lang-rules/markdown/` implement it.
+
+- Language-neutral logging and OpenTelemetry telemetry policies with stable clause
+  IDs, private multi-process-safe diagnostics and privacy-safe local SQLite capture;
+  separate Python implementation rules and policy-to-rule traceability.
+
+- Python docstring and API reference standards: Google-style public contracts,
+  focused comment cleanup, Ruff and pydoclint checks, and mkdocstrings builds.
+
+- SHA-pinned `oo-ratchet` dev dependency, OO/coupling/suppression baselines
+  and audit logs, real Makefile gates and per-file `make report`, and CI
+  merge-base checks with post-merge tripwires. Python adoption documentation
+  now points to the external package instead of embedded tooling.
+  The tooling/build/refactoring/design rules and their deployed
+  `.claude/rules/` copies use the package CLI too.
+
+- Punt-kit checks public docstrings and Python comments in lint and CI, and
+  builds a generated Python API reference from the source.
 
 - `punt enable` / `punt disable` (PL-1037, `tool-enable-disable.md` § 2.10).
   `enable` deposits punt's user guide at `.punt-labs/punt/CLAUDE.md` from the
@@ -58,9 +211,9 @@ All notable changes to this project will be documented in this file.
   with recommendations, the DES-040 draft, and a four-wave implementation
   plan with the findings type first.
 - `punt audit` checks the `.punt-labs/` layout against
-  `standards/punt-labs-dir.md` § 8 (`src/punt_kit/audit_layout.py`). Gitignore
+  `standards/punt-labs-dir.md` PLD-11 (`src/punt_kit/audit_layout.py`). Gitignore
   verdicts come from `git check-ignore` probes against the real index, one set
-  per tool directory present plus one per § 9.4 live path, never from a text
+  per tool directory present plus one per PLD-2 compatibility live path, never from a text
   match; the canonical block's text only explains a failed probe. The other
   checks: no tracked local-convention path (boundary-aware, so
   `config.locales.yaml` is never flagged), no gitignored shared path under
@@ -104,6 +257,23 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Rewrote the repository layout policy as PLD-1 through PLD-12 with Python
+  and Go rules, explicit review/audit gates, and stable cross-references.
+  Moved punt's compatibility inventory out of policy into its tool reference.
+  Corrected Lux's canonical bare file, tracked Ethos summary history, store
+  roots, lock ownership, bundles, and the supported local-credential boundary.
+- Layout audit accepts canonical lux.md and ethos.yaml without migration
+  warnings, rejects ignored canonical files, and cites PLD clause IDs.
+
+- Upgrade `punt-oo-ratchet` to 0.3.0 and audit the OO baseline adoption of
+  code-only module sizes and responsibility-class counting (PL-1141).
+  Raise the default efferent-coupling policy from 7 to 10 internal modules
+  to match the package (PL-1188).
+
+- Repin the OO quality gates to PyPI `punt-oo-ratchet` 0.1.0 and update
+  live documentation for the renamed `python-oo-ratchet` source repository
+  (PL-1155). The `oo-ratchet` CLI is unchanged.
+
 - `standards/readme.md`: a GUI app with no command line documents itself in a
   required **Using the App** section instead of a Commands table, and the
   Working Backwards badge stage must be `hypothesis`, `validated`, or
@@ -144,8 +314,8 @@ All notable changes to this project will be documented in this file.
   unnoticed until the next release. The own-package-only guard (foreign
   `punt-*` pins are never rewritten) is unchanged and now defined once.
 - **Standards: `punt-labs-dir.md` and `tool-enable-disable.md` state
-  migration rules keyed on what `punt audit` observes in a repo.** Section 9
-  of `punt-labs-dir.md` carries each live-state path and the grading rule (a
+  migration rules keyed on what `punt audit` observes in a repo.** The compatibility inventory
+  in `docs/repo-layout.md` carries each live-state path and the grading rule (a
   legacy root sentinel, bare file, or gitlink present, or a live path
   git-tracked, grades a warning and keeps its interim exclude; gone,
   nothing); the adoption-status table, dated rulings, and retirement
@@ -204,11 +374,22 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Bump punt-observe to 0.1.1: diagnostic logs now mask bare bearer
+  credentials and home-directory prefixes, and URL query redaction keeps
+  prose punctuation.
+
+- `punt enable` and `punt disable` now log configuration changes, no-ops,
+  refusals, and partial failures without paths or file contents.
+
+- `make check-standards` no longer fails ordinary headings such as
+  `### HTTP-2 transport` in documents without clause or rule IDs; malformed
+  ID headings are reported only in documents that already use IDs.
+
 - `CLAUDE.md` fence scanning: a fence line with an info string (```` ```python ````) no longer closes an open block; only a bare same-marker run at least as long as the opener does (CommonMark). Before, a correctly closed example block could make `punt enable` refuse with an unclosed-fence error (PL-1087).
 
 - The root `.gitignore` no longer ignores ethos lock files, live logs,
   temporaries, or `.punt-labs/ethos/.biff` from its repo-specific section;
-  `standards/punt-labs-dir.md` § 4 and § 6 allow only the canonical block and
+  `standards/punt-labs-dir.md` PLD-4 and PLD-4 allow only the canonical block and
   the § 9.4 interim excludes under `.punt-labs/`, and ethos writes its locks
   and live logs to the local zone the block already covers. A test asserts
   the repo-specific section carries no `.punt-labs/` pattern in any spelling
@@ -244,6 +425,9 @@ All notable changes to this project will be documented in this file.
   example is now the lux Hub.
 
 ### Removed
+
+- The unused `tomli` compatibility dependency for Python below 3.11. punt-kit
+  requires Python 3.13 or later and uses the standard-library `tomllib`.
 
 - `make skills-check` and `make skills-check-fix`, with `tools/skills_check.py`.
   They reconciled the `Skill()` table `punt init` used to seed; that table is
@@ -353,7 +537,7 @@ All notable changes to this project will be documented in this file.
   than one binding of the name (a later import, a walrus, or the `"0.0.0"`
   fallback python.md forbids), an assignment only inside an `if`/`try` block,
   and a file that does not parse.
-- `standards/punt-labs-dir.md` § 8: the vendored-subtree seal-manifest fail
+- `standards/punt-labs-dir.md` PLD-11: the vendored-subtree seal-manifest fail
   now applies only when the repo tracks any file under
   `.punt-labs/ethos/sessions/` (the ethos trace tier). A repo with nothing
   tracked there, the ethos DES-079 default, passes with a note.
@@ -500,7 +684,7 @@ All notable changes to this project will be documented in this file.
 - **Vox and beadle are enabled for this repo.** Commits the `.punt-labs/vox/` and `.punt-labs/beadle/` enablement markers and deposited agent guides, the corresponding `CLAUDE.md` `@`-imports (vox and beadle — no ethos import, since `.punt-labs/ethos/` is deliberately not committed here), and a `Bash(vox:*)` permission in `.claude/settings.json`. (`.punt-labs/vox/vox.md` was initially untracked here; that was reversed by operator ruling — see the Fixed entry below.)
 - **`tests/harness/` ships Wave 0 of the release-engine failure-path harness (pkit-f85t).** `FaultRule` (argv-prefix match against `Path(argv[0]).name`, `skip`/`times`-bounded or unlimited consumption, a scripted `CompletedProcess` response or raised exception, `interrupt_after(event)` to fire a rule-anchored interrupt on match completion, and `from_fixture(name)` to load a recorded `gh` envelope as a response) and `FaultInjectingOps` (a `ReleaseOps` double delegating unmatched `git` calls to a real `_run`, deny-by-default — `AssertionError` — for any other unmatched or non-passthrough-covered command, with an internal lock making the routing table's match-and-consume safe under a real `ThreadPoolExecutor`) per `docs/design-release-failure-harness.md` §2a/§2c. Ships with 28 unit tests covering the primitives themselves — including a deterministic lock-acquisition test added after round-1 review showed the original `ThreadPoolExecutor` stress test alone couldn't distinguish "the lock works" from "the critical section is too short for the GIL to ever preempt inside it," a fix so `interrupt_after` never fires when its anchored rule raises rather than returns, and constructor rejection of an empty `match`/`passthrough` prefix or empty executable name — zero migration of `tests/test_release.py`, zero `src/` changes. Wave 0 is deliberately scoped to the primitives alone so they get scrutinized before anything depends on them.
 - **`docs/design-release-failure-harness.md` designs the release-engine failure-path test harness.** ACCEPTED design for `pkit-f85t`'s remaining shared deliverable: a `FaultInjectingOps` fault-injection double layered on the existing `ReleaseOps` seam, a read-only recorded-`gh`-fixture contract-test library to catch CLI drift, and two rule-anchored interrupt primitives (a raised-`KeyboardInterrupt` rule for every synchronous phase, an event-polling `interrupt_after` for the one worker-thread poll loop DES-029 actually hit) — plus a 62-row fault-injection coverage matrix and an 8-item known-defect inventory (including a newly-identified P0 in Phase 5's tag-then-push resume ordering) sequenced into six incremental delivery waves. No source changes in this PR — the design lands first per the org's design-then-implement workflow.
-- **`standards/punt-labs-dir.md`, `standards/tool-enable-disable.md`, `standards/filesystem.md`, and `standards/distribution.md` codify two operator rulings on per-repo config location, 2026-09-10.** Ruling 1: every per-repo path for a Punt Labs tool lives under `.punt-labs/` — shared, committed state in the tool root (`.punt-labs/<tool>/`), machine-local live state in the local zone (`.punt-labs/local/<tool>/`) — and no repo-root sentinel survives outside `.punt-labs/` in any form (`.beads/` is an explicit, named exception — an org-external tool with its own independent root convention, not a Punt Labs tool subject to this rule). A fleet survey (30+ repos) found three attested legacy shapes, not the one form the standard previously named: a settings dotfile (`.biff`, `.quarry.toml`), a config-bearing root directory (`.vox/config.md`, `.lux/config.md` — both carry live settings, not "pure presence" as an earlier draft assumed, though only vox's is daemon-rewritten; lux's `display` is enable/disable-managed), and a root-level runtime-state directory (the bare `.ethos/` directory holding `missions.jsonl`, tracked in every surveyed ethos-adopting repo — distinct from the pre-existing `.punt-labs/ethos/missions.jsonl` sealed-chunk destination, unaffected by this change). `punt-labs-dir.md` §1/§8/§9/§10 name and grade all three; `tool-enable-disable.md`/`filesystem.md`/`distribution.md` now cross-reference that table instead of restating (or, for `distribution.md`'s prior "use a dotfile at the git root" line, contradicting) the legacy shape. Ruling 2, on the standing question of what git status a file rewritten after deposit should have inside `.punt-labs/<tool>/`: "*local* is the flag that something should not be in git. If it is not in *local*, that means I designed it to be in git." Git status inside the tool root is naming-determined and naming-determined only (`punt-labs-dir.md` §4) — a file like `vox.md`, rewritten continuously by a daemon, or `lux`'s `config.md`, rewritten by `enable`/`disable` themselves, is ordinary tracked Config-zone content either way, not a separate gitignored zone. A continuously-rewritten file legitimately shows `modified` in an active checkout by design, and the release engine's accommodation for that (stash around the clean-tree check) is tracked separately as `pkit-f85t.9`. `punt-labs-dir.md` §8 gains the audit check this implies — a **gitignored** non-local-convention path under `.punt-labs/<tool>/` is the violation, not a tracked one — with implementation tracked as `pkit-6h9l`.
+- **`standards/punt-labs-dir.md`, `standards/tool-enable-disable.md`, `standards/filesystem.md`, and `standards/distribution.md` codify two operator rulings on per-repo config location, 2026-09-10.** Ruling 1: every per-repo path for a Punt Labs tool lives under `.punt-labs/` — shared, committed state in the tool root (`.punt-labs/<tool>/`), machine-local live state in the local zone (`.punt-labs/local/<tool>/`) — and no repo-root sentinel survives outside `.punt-labs/` in any form (`.beads/` is an explicit, named exception — an org-external tool with its own independent root convention, not a Punt Labs tool subject to this rule). A fleet survey (30+ repos) found three attested legacy shapes, not the one form the standard previously named: a settings dotfile (`.biff`, `.quarry.toml`), a config-bearing root directory (`.vox/config.md`, `.lux/config.md` — both carry live settings, not "pure presence" as an earlier draft assumed, though only vox's is daemon-rewritten; lux's `display` is enable/disable-managed), and a root-level runtime-state directory (the bare `.ethos/` directory holding `missions.jsonl`, tracked in every surveyed ethos-adopting repo — distinct from the pre-existing `.punt-labs/ethos/missions.jsonl` sealed-chunk destination, unaffected by this change). `punt-labs-dir.md` PLD-1, PLD-10 and PLD-11 name and grade all three; `tool-enable-disable.md`/`filesystem.md`/`distribution.md` now cross-reference that table instead of restating (or, for `distribution.md`'s prior "use a dotfile at the git root" line, contradicting) the legacy shape. Ruling 2, on the standing question of what git status a file rewritten after deposit should have inside `.punt-labs/<tool>/`: "*local* is the flag that something should not be in git. If it is not in *local*, that means I designed it to be in git." Git status inside the tool root is naming-determined and naming-determined only (`punt-labs-dir.md` PLD-4) — a file like `vox.md`, rewritten continuously by a daemon, or `lux`'s `config.md`, rewritten by `enable`/`disable` themselves, is ordinary tracked Config-zone content either way, not a separate gitignored zone. A continuously-rewritten file legitimately shows `modified` in an active checkout by design, and the release engine's accommodation for that (stash around the clean-tree check) is tracked separately as `pkit-f85t.9`. `punt-labs-dir.md` PLD-11 gains the audit check this implies — a **gitignored** non-local-convention path under `.punt-labs/<tool>/` is the violation, not a tracked one — with implementation tracked as `pkit-6h9l`.
 
 ### Removed
 
@@ -508,7 +692,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- **Phase 1's clean-tree preflight now names the exact `git stash` command when the only dirty paths are daemon-mutable settings files (e.g. `.punt-labs/vox/vox.md`), instead of the generic dirty-tree dump.** Per standards/punt-labs-dir.md § 7, a running vox daemon continuously rewrites `.punt-labs/vox/vox.md` (a tracked Config-zone file, by design), so a repo with an active vox session routinely shows it `modified` at release time. The gate still fails the release — no auto-stash yet, tracked as a possible follow-up — but when `_DAEMON_MUTABLE_PATHS` (currently just `vox.md`; a small, explicit allowlist rather than a path-shape heuristic, since `lux`'s otherwise-identical-looking `.punt-labs/lux/config.md` is *not* daemon-rewritten) accounts for every dirty path, the message names `git stash push -- <paths>` and the post-release `git stash pop --index` step directly, also noting that a deliberate settings change should be committed instead of stashed and that a still-running vox session can rewrite the file again before the next check. Mixed dirt (a daemon file plus anything else) keeps the original "Working tree is not clean" shape but still lists which paths are daemon-mutable, and an untracked file present alongside daemon-only dirt is folded into the same failure rather than surfacing as a second, previously invisible failure on the next run. `git stash pop --index` (not a bare `pop`) preserves whether the settings file was staged before the stash. Fixing this also surfaced a latent off-by-one: whole-block `.strip()` on `git status --porcelain`'s stdout ate the leading space of the first line whenever it was an unstaged-only modification (`" M path"`), corrupting the parsed path for the alphabetically-first dirty entry by one character — switched to `splitlines()` on the raw stdout, which needs no such strip (pkit-f85t.9).
+- **Phase 1's clean-tree preflight now names the exact `git stash` command when the only dirty paths are daemon-mutable settings files (e.g. `.punt-labs/vox/vox.md`), instead of the generic dirty-tree dump.** Per standards/punt-labs-dir.md PLD-7, a running vox daemon continuously rewrites `.punt-labs/vox/vox.md` (a tracked Config-zone file, by design), so a repo with an active vox session routinely shows it `modified` at release time. The gate still fails the release — no auto-stash yet, tracked as a possible follow-up — but when `_DAEMON_MUTABLE_PATHS` (currently just `vox.md`; a small, explicit allowlist rather than a path-shape heuristic, since `lux`'s otherwise-identical-looking `.punt-labs/lux/config.md` is *not* daemon-rewritten) accounts for every dirty path, the message names `git stash push -- <paths>` and the post-release `git stash pop --index` step directly, also noting that a deliberate settings change should be committed instead of stashed and that a still-running vox session can rewrite the file again before the next check. Mixed dirt (a daemon file plus anything else) keeps the original "Working tree is not clean" shape but still lists which paths are daemon-mutable, and an untracked file present alongside daemon-only dirt is folded into the same failure rather than surfacing as a second, previously invisible failure on the next run. `git stash pop --index` (not a bare `pop`) preserves whether the settings file was staged before the stash. Fixing this also surfaced a latent off-by-one: whole-block `.strip()` on `git status --porcelain`'s stdout ate the leading space of the first line whenever it was an unstaged-only modification (`" M path"`), corrupting the parsed path for the alphabetically-first dirty entry by one character — switched to `splitlines()` on the raw stdout, which needs no such strip (pkit-f85t.9).
 - **An interrupt during Phase 1 preflight (or version detection) now gets the same cleanup, incomplete-release report, and exit-1 as every other stop — instead of escaping as a raw `KeyboardInterrupt` with no diagnosis.** Found by Wave 5's resume-point sweep on its very first case: `run_release`'s interrupt handling — the `finally` block that checks `_interrupted`, resets propagation siblings, prints where the release stopped and the exact `--resume-from` command, and converts to exit code 1 — only wrapped phases 2–11. Phase 1 and version detection executed *before* that `try`, so a real Ctrl-C during preflight (the signal handler sets the event and raises) propagated straight out of `run_release` uncaught: no report, no resume hint, no cleanup — contradicting `_print_incomplete_release`'s own "called from every stop-early path" contract and the v0.17.2 changelog's every-non-success-exit claim. A `ReleaseError` in Phase 1 was unaffected (the outer handler catches it); only the interrupt path had the hole. The phase-1 and version-detection blocks now run inside the same `try`, with no behavior change for any other exit path; the sweep's `preflight` case is the regression test. Review (qodo, Copilot) then caught the resumed half of the same window: a resume without `--version` runs `_get_project_version` while the phase tracker is still 0, so a Ctrl-C there produced a contained-but-useless report — "a phase could not be identified", every phase listed unlanded, no `--resume-from` hint. The pre-pipeline window of a resumed run is now credited to the phase the operator asked to resume from, so the report hands back the exact command they already ran; regression-tested with an interrupt injected into the resumed version lookup (pkit-f85t.11).
 - **Twenty-four `ops.run` call sites across thirteen methods that defaulted to `check=True` now diagnose failures instead of leaking a raw `CalledProcessError` (pkit-f85t.7, three passes).** Design doc defect #3 named `InstallAllPropagator._sync_profile_readme`'s `git log` call as one example of a broader pattern: most call sites already pass `check=False` plus a specific `ops.fail(...)` message, but a few still defaulted to `check=True` with no surrounding diagnosis. For a call inside a synchronous, non-threaded phase (1's sibling validation, 2, 3, 4, 5, 9, or Phase 4's own PR-merge flow), the gap was worse than a lower-quality message — a raw `CalledProcessError` has no handler in `run_release` (which only catches `ReleaseError` and `subprocess.TimeoutExpired`) and would have escaped as a bare traceback instead of the usual "Release incomplete — resume with ..." diagnosis. Pass 1 converted eight call sites: `Phase3Build`'s `uv build`; `Phase4ReleasePr`'s plugin-swap script invocation; `GitWorkspace.push` (Phase 5's tag push, its only caller); `Phase9PostRelease`'s restore-script invocation and its own explicit restore commit; `SiblingRepo.validate`'s `git branch --show-current` and `git status --porcelain` (inconsistent with the `git pull --ff-only` two lines later in the same method, which was already diagnosed); and `InstallAllPropagator._sync_profile_readme`'s `git log` (defect #3's named example) — distinguished from the already-handled, genuinely-empty "no commit has ever touched install-all.sh" case. An independent review (rmh, confirmed by Copilot) found pass 1's sweep incomplete against its own stated criteria: pass 2 converted eleven more call sites meeting the same network-op/hook-firing-mutation criteria that were missed, not knowingly kept — `GitWorkspace.ensure_on_main`'s checkout and pull (called unconditionally by Phases 2, 5, and 9), `GitWorkspace.checkout_or_create`'s two checkout forms (Phases 2, 9, and `merge_in_sibling`), `GitWorkspace.commit_if_staged`'s commit (backing Phase 2's own release-version-bump commit, among others), `Phase5Tag`'s own tag creation, `Phase9PostRelease`'s cleanup checkout and branch-delete, `Phase2VersionBump`'s `uv lock` (Copilot's independent finding), and `PrMerger.merge`'s checkout+pull — the latter extracted from three near-identical inline blocks into one `_sync_local_main` helper (a genuine duplication reduction, not just a relocation), with its `rev-parse` kept `check=True` and justified inline (reads the state the two lines above it just fast-forwarded to). A self-audit re-check before closing the bead caught five more of the same shape: `ReadmeShaPin.land`'s own no-changes-needed cleanup (the same checkout+branch-delete pattern Phase 9 already had fixed, in a second copy of it), `PrMerger.merge_in_sibling`'s sibling-repo status read, `Phase8VerifyPypi`'s editable-install-restore call, and `Phase5Tag`'s `git ls-remote --tags origin` in the resume path. `ReleaseOps.run`'s docstring now states the sweep's boundary explicitly — which call-site classes convert (network, external tool, hook-firing mutation, sibling read) and which stay `check=True` and why (local read-only metadata or `git add` against an already-validated repo) — so a future audit has one place to check the criteria against. Every converted site carries its own harness scenario (see Added, above); two pass-1 tests (Phase 4's swap-script retry, Phase 8's retry-loop timeout) were also strengthened per qodo's review to use a real rejecting git hook and a genuine second-attempt failure respectively, rather than intercepting the whole subprocess call. Cursor and Copilot then caught one more gap in `Phase2VersionBump`'s `uv lock` conversion itself: the diagnosed message said "see output above," but the call still defaulted to `capture=True`, so the resolver's real error output was silently captured and never shown anywhere — fixed by adding `capture=False`, matching `uv build` (Phase 3) and the Phase 1 quality gates, with a new test driving a real subprocess (a fake `uv` script on `PATH`) and asserting via `capfd` that the terminal actually shows the resolver's output.
 - **Phase 5's `--resume-from tag` now re-pushes a tag that was created locally but never reached the remote — refuses to proceed if the remote tag is a different commit, and correctly recognizes an annotated remote tag at the right commit as a no-op.** `Phase5Tag.run` creates the git tag locally before pushing it; a push failure (network blip, transient auth failure) left the tag at HEAD locally with nothing on the remote. Resuming re-entered the existing-tag branch, saw the tag already at HEAD, logged "already exists," and returned without ever retrying the push — silently sending Phase 6 to wait on CI for a tag that was never pushed. The existing-tag branch now checks `git ls-remote --tags origin` and pushes when the tag is missing from the remote, leaving the genuinely-already-pushed case a no-op. A remote ref of the same name is not proof it's the *right* commit either — an operator recovering from a botched release by recreating the local tag at a corrected commit, with a stale wrong-commit tag still on the remote, now gets a loud diagnosed failure instead of a silent "already exists." The SHA comparison itself needed a second pass: `git ls-remote --tags origin <exact-tag>` never emits the peeled `^{}` line at all (server-side ref filtering strips it), and for an *annotated* remote tag its one remaining line reports the tag object's own SHA, not the commit it points at — comparing that directly against a local lightweight tag's commit SHA (`Phase5Tag` only ever creates lightweight tags itself, but the remote's copy can be annotated by other tooling) falsely flagged every annotated remote tag as a mismatch, even one at the exact right commit. Now reads the *unfiltered* `git ls-remote --tags origin` listing and prefers the peeled line when present (pkit-f85t.10, P0).
@@ -1145,7 +1329,7 @@ All notable changes to this project will be documented in this file.
   (balanced-pair fences, the mandated `.<host-file-name>.punt-import.lock`
   shared lock, non-indented delimiters only, same-marker close of length ≥
   opener) and names biff's `ClaudeMdImport` as the canonical reference;
-  `punt-labs-dir.md` §4 gains the redaction-at-write clause for committed
+  `punt-labs-dir.md` PLD-4 gains the redaction-at-write clause for committed
   content (DES-058) with a `punt pii` audit cross-ref in §8; `python.md`
   gains a Version Reporting section (`importlib.metadata.version`, no
   literal `__version__`); `patterns/claude-md-injection.md` renamed to

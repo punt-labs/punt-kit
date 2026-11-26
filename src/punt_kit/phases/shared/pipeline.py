@@ -1,5 +1,4 @@
-"""The release pipeline: a Protocol every phase satisfies, a value object
-describing one step, and the runner that iterates them."""
+"""Run ordered release steps and report their outcomes."""
 
 from __future__ import annotations
 
@@ -38,7 +37,7 @@ _console = Console()
 
 @runtime_checkable
 class Phase(Protocol):
-    """Anything with a no-arg ``run() -> None``.
+    """Define the no-argument execution interface for release phases.
 
     The 11 release phases share zero implementation — each phase's ``run()``
     body is entirely distinct control flow calling distinct collaborators.
@@ -46,21 +45,14 @@ class Phase(Protocol):
     (structural interface) is the right shape, not an ABC.
     """
 
-    def run(self) -> None: ...
+    def run(self) -> None:
+        """Execute the release step."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
 class PhaseStep:
-    """One named, numbered step in the pipeline.
-
-    A pure value object: ``release.py`` builds one ``PhaseStep`` per phase
-    using a closure defined in ``release.py`` (so the bare-name lookup rule
-    from ``ReleaseOps`` still applies to the ``_phaseN_xxx(...)`` wrapper it
-    calls) rather than a bound method on a ``phases/*`` class — this is what
-    lets ``ReleasePipeline`` stay fully generic (it does not know about 11
-    specific phase classes) while ``monkeypatch.setattr(release_mod,
-    "_phase3_build", ...)`` still intercepts correctly.
-    """
+    """Describe a numbered, named pipeline step with a no-argument action."""
 
     number: int
     name: str
@@ -69,13 +61,14 @@ class PhaseStep:
 
 @final
 class ThreadedStep:
-    """Collects results from phases run concurrently in a thread pool."""
+    """Collect results from phases running concurrently."""
 
     __slots__ = ("_ops",)
 
     _ops: ReleaseOps
 
     def __new__(cls, *, ops: ReleaseOps) -> Self:
+        """Bind the operations used to report checkpoints."""
         self = super().__new__(cls)
         self._ops = ops
         return self
@@ -86,11 +79,15 @@ class ThreadedStep:
         *,
         interrupted: threading.Event,
     ) -> None:
-        """Wait for all futures, collect errors, and fail if any occurred.
+        """Collect results from all futures before reporting failure.
 
-        If ``interrupted`` is set after threads drain, raises
-        ``KeyboardInterrupt`` so the caller's ``finally`` block handles
-        cleanup (avoiding double-cleanup with ``run_release``).
+        Args:
+            futures: Map each submitted future to its phase label.
+            interrupted: Set by the release's interrupt handler.
+
+        Raises:
+            KeyboardInterrupt: The interrupt event is set after workers finish.
+            ReleaseError: One or more workers failed.
         """
         errors: list[tuple[str, str]] = []
         reported: set[str] = set()  # tasks whose failure Reporter.fail printed
@@ -161,7 +158,7 @@ class ThreadedStep:
 
 @final
 class ReleasePipeline:
-    """Runs the numbered release phases in order, honoring a resume point."""
+    """Run release phases in order from a configurable resume point."""
 
     __slots__ = ("_ops", "_steps")
 
@@ -169,6 +166,7 @@ class ReleasePipeline:
     _ops: ReleaseOps
 
     def __new__(cls, steps: Sequence[PhaseStep], *, ops: ReleaseOps) -> Self:
+        """Bind an ordered sequence of steps and release operations."""
         self = super().__new__(cls)
         self._steps = steps
         self._ops = ops
@@ -215,21 +213,21 @@ class ReleasePipeline:
             cls.print_crash(exc)
 
     @staticmethod
-    def print_crash(exc: Exception) -> None:
-        """Report an unexpected exception: one line if operational, else a trace."""
+    def print_crash(exc: Exception) -> str:
+        """Print the crash and return its one-line diagnostic."""
         line = OperationalFailure.report(exc)
         if OperationalFailure.covers(exc):
             _console.print(f"[red]Error:[/red] {escape(line)}")
+        return line
 
     @staticmethod
     def print_timeout(
         exc: subprocess.TimeoutExpired, current_phase_num: int, resume_phase_num: int
-    ) -> None:
-        """Report a command that did not return: where, and how to resume."""
+    ) -> str:
+        """Print and return a diagnosis with the timeout and resume advice."""
         raw_cmd = cast("object", exc.cmd)
         if isinstance(raw_cmd, list | tuple):
-            parts = cast("Sequence[object]", raw_cmd)
-            cmd_str = " ".join(map(str, parts))
+            cmd_str = " ".join(map(str, cast("Sequence[object]", raw_cmd)))
         else:
             cmd_str = str(raw_cmd)
         phase_label = PhaseOrder.name_of(current_phase_num)
@@ -242,17 +240,17 @@ class ReleasePipeline:
         else:
             resume_hint = (
                 f"Investigate the command, then resume with "
-                f"punt release --resume-from {resume_label}."
+                f"punt release run --resume-from {resume_label}."
             )
-        if phase_label == "unknown":
-            location = "before the first phase started"
-        else:
+        location = "before the first phase started"
+        if phase_label != "unknown":
             location = f"in phase {current_phase_num} ({phase_label})"
-        _console.print(
-            f"[red]Error:[/red] release aborted {location} — "
-            f"`{escape(RepoSlug.redacted(cmd_str))}` did not return "
-            f"within {exc.timeout}s. {resume_hint}"
+        message = (
+            f"release aborted {location} — `{RepoSlug.redacted(cmd_str)}` "
+            f"did not return within {exc.timeout}s. {resume_hint}"
         )
+        _console.print(f"[red]Error:[/red] {escape(message)}")
+        return message
 
     def summarize(
         self,

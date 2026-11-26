@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import json
+import random
 import subprocess
+import sys
+import time
 from typing import TYPE_CHECKING
 
 import pytest
 
-from punt_kit.pii import PiiConfig, load_config, run_pii, scan_file
+from punt_kit.errors import CommandFailure
+from punt_kit.pii import PiiConfig, load_config, scan_file
+from punt_kit.pii_checkout import run_pii
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -41,6 +47,103 @@ def _add_and_commit(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Email detection
 # ---------------------------------------------------------------------------
+
+
+def _matches(tmp_path: Path, text: str) -> list[str]:
+    (tmp_path / "input.txt").write_text(text)
+    return [f.match for f in scan_file("input.txt", tmp_path, PiiConfig())]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("bob@x.io-bob@x.io", ["bob@x.io", "bob@x.io"]),
+        ("jim@acme.io@", ["jim@acme.io"]),
+        ("see jim@acme.io@ now", ["jim@acme.io"]),
+        ("jim@acme.io@ foo", ["jim@acme.io"]),
+        ("bob@x.io-note", ["bob@x.io"]),
+        ("bob@host.local-note", ["bob@host.local"]),
+        ("alice@münchen.local...ready", ["alice@münchen.local"]),
+        ("bob@x.io..next", ["bob@x.io"]),
+        ("bob@x.io.", ["bob@x.io"]),
+        ("bob@x.io-" + "a" * 256 + "@x.io", ["bob@x.io", "a" * 256 + "@x.io"]),
+        ("a@x.io-bob.ab@y.io", ["a@x.io", "bob.ab@y.io"]),
+        ("a@host.local-b@x.io", ["a@host.local", "b@x.io"]),
+        (r"\n@pytest.fixture", []),
+        (r"\u003cbob@x.io\u003e", ["bob@x.io"]),
+        (r"\nbob@host.local", ["bob@host.local"]),
+        (r"\\nbob@x.io", ["nbob@x.io"]),
+        ("a" * 65 + "@x.io", ["a" * 65 + "@x.io"]),
+        ("a%b@host.local", ["a%b@host.local"]),
+        ("a@b.c.local", ["a@b.c.local"]),
+        ("josé@mac.local", ["josé@mac.local"]),
+        ("bob@münchen.local", ["bob@münchen.local"]),
+        (r"C:\a@x.io", ["a@x.io"]),
+        (r"\\\\\nbob@x.io", ["bob@x.io"]),
+    ],
+)
+def test_address_boundaries(tmp_path: Path, text: str, expected: list[str]) -> None:
+    """Glued addresses, JSON escapes and long local parts are matched whole."""
+    assert _matches(tmp_path, text) == expected
+
+
+def test_allowlist_applies_after_json_escape(tmp_path: Path) -> None:
+    """An escape before an allowlisted address does not defeat the allowlist."""
+    assert _matches(tmp_path, r'{"a": "\u003cnoreply@github.com\u003e"}') == []
+
+
+def test_long_run_without_address_scans_linearly(tmp_path: Path) -> None:
+    """A long word run with no address does not make the scan quadratic."""
+    started = time.perf_counter()
+    assert _matches(tmp_path, "a" * 200_000 + " " + "b-" * 100_000) == []
+    assert time.perf_counter() - started < 2
+
+
+@pytest.mark.parametrize("prefix", ["a@", ""])
+def test_repeated_domain_boundaries_scan_linearly(tmp_path: Path, prefix: str) -> None:
+    """Repeated TLD boundaries cannot trigger unbounded suffix rescans."""
+    (tmp_path / "input.txt").write_text(prefix + "x.io-" * 50_000)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from pathlib import Path; import sys; "
+            "from punt_kit.pii import PiiConfig, scan_file; "
+            "print(len(scan_file('input.txt', Path(sys.argv[1]), PiiConfig())))",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=2,
+        check=True,
+    )
+    assert int(result.stdout) == bool(prefix)
+
+
+def test_generated_addresses_all_found_and_redaction_idempotent(
+    tmp_path: Path,
+) -> None:
+    """Redacting every finding leaves no address, and a rescan finds nothing."""
+    rng = random.Random(906)
+
+    def redact(text: str) -> str:
+        for match in _matches(tmp_path, text):
+            text = text.replace(match, "[REDACTED]", 1)
+        return text
+
+    for _ in range(500):
+        addresses = [
+            rng.choice("abcXYZ019_%+")
+            + "".join(rng.choices("abcXYZ019._%+-", k=rng.randint(0, 120)))
+            + rng.choice(["@x.io", "@mail.x.co", "@host.local"])
+            for _ in range(rng.randint(1, 5))
+        ]
+        sep = rng.choice(["-", " ", r"\t", r"\n", r"\u003c"])
+        text = rng.choice(["", r"\n", r"\u003c"]) + sep.join(addresses)
+        redacted = redact(text)
+        assert "@" not in redacted, text
+        assert _matches(tmp_path, redacted) == []
+        assert redact(redacted) == redacted
 
 
 def test_detects_email(tmp_path: Path) -> None:
@@ -236,7 +339,7 @@ def test_allow_patterns_suppress_paths(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Integration: run_pii
+# PII runner integration
 # ---------------------------------------------------------------------------
 
 
@@ -273,11 +376,72 @@ def test_staged_mode(tmp_path: Path) -> None:
     # Staged mode should find nothing (dirty.py not staged)
     run_pii(str(tmp_path), staged=True)
 
-    # Now stage it
     subprocess.run(["git", "add", "dirty.py"], cwd=str(tmp_path), capture_output=True)
 
+    # A worktree cleanup does not change what is about to be committed.
+    (tmp_path / "dirty.py").write_text("x = 1\n")
     with pytest.raises(SystemExit, match="1"):
         run_pii(str(tmp_path), staged=True)
+
+
+def test_staged_scan_ignores_gitlinks_and_still_reports_file_findings(
+    tmp_path: Path,
+) -> None:
+    _init_git(tmp_path)
+    _add_and_commit(tmp_path)
+    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=tmp_path)
+    subprocess.run(
+        [
+            "git",
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            "160000",
+            head.decode().strip(),
+            "a",
+        ],
+        check=True,
+        cwd=tmp_path,
+    )
+    (tmp_path / "z.txt").write_text("person@private.com\n")
+    subprocess.run(["git", "add", "z.txt"], check=True, cwd=tmp_path)
+
+    with pytest.raises(CommandFailure) as error:
+        run_pii(str(tmp_path), staged=True)
+    assert error.value.details["files_scanned"] == 1
+    assert json.loads(json.dumps(error.value.details))["findings"] == [
+        {"file": "z.txt", "line": 1, "category": "email"}
+    ]
+
+
+@pytest.mark.parametrize("staged", [False, True])
+def test_scan_reads_symlink_targets_without_following_them(
+    tmp_path: Path, staged: bool
+) -> None:
+    _init_git(tmp_path)
+    (tmp_path / "link").symlink_to("person@private.com")
+    subprocess.run(["git", "add", "link"], check=True, cwd=tmp_path)
+
+    with pytest.raises(CommandFailure) as error:
+        run_pii(str(tmp_path), staged=staged)
+    assert error.value.details["findings"] == [
+        {"file": "link", "line": 1, "category": "email"}
+    ]
+
+
+@pytest.mark.parametrize("config", [None, 'deny = "classified"\n'])
+def test_scan_rejects_a_missing_or_malformed_explicit_config(
+    tmp_path: Path, config: str | None
+) -> None:
+    _init_git(tmp_path)
+    path = tmp_path / "custom.toml"
+    if config is not None:
+        path.write_text(config)
+
+    with pytest.raises(CommandFailure) as error:
+        run_pii(str(tmp_path), config=str(path))
+    expected = "custom.toml" if config is None else "list of strings"
+    assert expected in error.value.message
 
 
 def test_load_config_reads_a_pyproject_and_standalone_file_with_a_bom(

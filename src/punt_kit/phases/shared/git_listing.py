@@ -1,4 +1,4 @@
-"""The listing forms of git ``branch``, ``tag`` and ``remote``, which write no ref."""
+"""Recognize read-only listing forms of Git commands."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class ReadOnlyForm:
-    """The options of one git verb that only list, and never write a ref.
+    """Represent listing options for a Git verb that can also write refs.
 
     ``branch``, ``tag`` and ``remote`` update refs in one form and only read
     them in another. The listing form runs no hook, so it keeps the short
@@ -26,7 +26,7 @@ class ReadOnlyForm:
     subcommands: frozenset[str] = frozenset()
 
     def covers(self, words: Sequence[str]) -> bool:
-        """True when ``words`` are listing options, their values, and nothing else."""
+        """Recognize invocations consisting only of listing options and their values."""
         if words and words[0] in self.subcommands:
             return True
         index = 0
@@ -47,7 +47,7 @@ class ReadOnlyForm:
 
     @staticmethod
     def _has_value(words: Sequence[str], index: int) -> bool:
-        """True when the option at ``index`` takes the next word as its value."""
+        """Check whether the option at ``index`` consumes the next word."""
         return (
             "=" not in words[index]
             and index + 1 < len(words)
@@ -55,7 +55,7 @@ class ReadOnlyForm:
         )
 
     def _is_flag_cluster(self, word: str) -> bool:
-        """True for a short-option cluster such as ``-vv`` or ``-av``."""
+        """Recognize a short-option cluster such as ``-vv`` or ``-av``."""
         return (
             word.startswith("-")
             and not word.startswith("--")

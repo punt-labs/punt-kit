@@ -1,4 +1,4 @@
-"""Selecting and watching the CI run a tag push triggered."""
+"""Select and watch the CI run triggered by a tag push."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 @final
 class TagRunSelector:
-    """Picks the workflow run that one specific tag push triggered.
+    """Identify the workflow run triggered by a specific tag push.
 
     Three predicates, each rejecting a distinct kind of wrong run.
     ``headBranch`` rejects a run belonging to a different tag. ``event``
@@ -40,6 +40,7 @@ class TagRunSelector:
     _tag: str
 
     def __new__(cls, tag: str, commit: str) -> Self:
+        """Identify a tag-triggered run by tag and commit."""
         self = super().__new__(cls)
         self._tag = tag
         self._commit = commit
@@ -47,7 +48,7 @@ class TagRunSelector:
 
     @classmethod
     def list_command(cls, gh: str, tag: str) -> list[str]:
-        """The gh invocation listing the runs worth considering for ``tag``.
+        """Build the gh invocation that lists candidate runs for ``tag``.
 
         ``--branch`` filters by ref server-side, so the list holds only this
         tag's runs. Without it the limit is a truncation risk: enough
@@ -95,7 +96,7 @@ class TagRunSelector:
         return f"{'; '.join(seen)}, but the local tag is at {self._commit[:8]}"
 
     def matches(self, run: Mapping[str, object]) -> bool:
-        """True when ``run`` was triggered by this tag at this commit."""
+        """Check whether this tag at this commit triggered ``run``."""
         return (
             run.get("headBranch") == self._tag
             and run.get("event") == "push"
@@ -103,7 +104,11 @@ class TagRunSelector:
         )
 
     def run_id(self, run: Mapping[str, object]) -> int:
-        """Return the run's numeric id, or raise when the payload lacks one."""
+        """Return the run's numeric database ID.
+
+        Raises:
+            ReleaseError: The payload has no integer ``databaseId``.
+        """
         candidate = run.get("databaseId")
         if not isinstance(candidate, int):
             msg = f"CI run for {self._tag} has no usable databaseId: {run!r}"
@@ -118,9 +123,15 @@ class TagRunSelector:
         interval: float,
         sleep: Callable[[float], None] = time.sleep,
     ) -> int:
-        """Return this tag's run id, waiting for the run to appear.
+        """Wait for the tag run and return its numeric database ID.
 
-        Raises ``ReleaseError`` when no run matches within ``attempts`` polls.
+        Args:
+            list_runs: Fetch candidate runs in newest-first order.
+            interval: Seconds to wait between polls.
+
+        Raises:
+            ReleaseError: No run matches within ``attempts`` polls, or the
+                matching run lacks a numeric database ID.
         """
         for attempt in range(1, attempts + 1):
             # gh lists runs newest first, so the first match is the most
@@ -144,13 +155,14 @@ class TagRunSelector:
 
 @final
 class CiRunWatch:
-    """Explains a ``gh run watch`` outcome without inventing a CI verdict."""
+    """Explain a ``gh run watch`` failure without inferring a CI verdict."""
 
     __slots__ = ("_ops",)
 
     _ops: ReleaseOps
 
     def __new__(cls, *, ops: ReleaseOps) -> Self:
+        """Bind release operations for CI run discovery."""
         self = super().__new__(cls)
         self._ops = ops
         return self

@@ -1,4 +1,4 @@
-"""punt init's beads step: run ``bd init`` and report why it failed."""
+"""Run the ``bd init`` step for ``punt repo init``."""
 
 from __future__ import annotations
 
@@ -25,22 +25,23 @@ class BeadsInitError(ReleaseError):
 
 @final
 class BeadsInit:
-    """Initializes beads in a project that has none."""
+    """Initialize beads in a project that has none."""
 
     __slots__ = ("_info",)
 
     _info: ProjectInfo
 
     def __new__(cls, info: ProjectInfo) -> Self:
+        """Initialize beads in the project ``info`` describes."""
         self = super().__new__(cls)
         self._info = info
         return self
 
     def run(self) -> list[str]:
-        """Files created, or empty when beads is present or ``bd`` is absent.
+        """Return the paths created by ``bd init``, or none if it is skipped.
 
-        Raises :class:`BeadsInitError` when ``bd init`` fails: the caller
-        finishes its other steps and then ends the run with the failure.
+        Raises:
+            BeadsInitError: ``bd init`` fails, times out, or cannot start.
         """
         info = self._info
         if info.has_beads:
@@ -51,7 +52,6 @@ class BeadsInit:
             console.print("  [yellow]⚠[/yellow] bd not found — skipping beads init")
             return []
 
-        # Derive prefix from directory name
         prefix = info.root.name.replace("-", "").replace("_", "")
         try:
             CommandRunner.run(
@@ -75,10 +75,7 @@ class BeadsInit:
         return [".beads/"]
 
     def _with_partial(self, msg: str) -> str:
-        """``msg``, plus a warning when the failed run left a ``.beads/`` behind.
-
-        Only called after ``run`` saw no ``.beads/``, so one now is bd's debris.
-        """
+        """Add a cleanup hint if the failed run left a partial ``.beads/``."""
         if not (self._info.root / ".beads").exists():
             return msg
         return f"{msg}; bd init left a partial .beads/ — remove it before retrying"

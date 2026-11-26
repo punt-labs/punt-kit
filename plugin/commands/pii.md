@@ -17,7 +17,7 @@ Arguments: $ARGUMENTS (defaults to `.` if empty; pass `--staged` for pre-commit 
 Run the PII scanner:
 
 ```bash
-punt pii $ARGUMENTS
+punt repo scan-pii $ARGUMENTS
 ```
 
 Report the output to the user. If findings are detected, explain each category and suggest remediation (replace personal emails with org identity, use relative paths, etc.).

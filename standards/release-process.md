@@ -5,9 +5,9 @@
 Releases are invoked via `/punt:auto release [version=X.Y.Z]`, which runs the
 `release` playbook (`plugin/playbooks/release.yaml` in punt-kit;
 `${CLAUDE_PLUGIN_ROOT}/playbooks/release.yaml` at runtime). The playbook delegates to the
-`punt release` CLI (`src/punt_kit/release.py`) for the deterministic phases 1–11,
+`punt release run` CLI (`src/punt_kit/release.py`) for the deterministic phases 1–11,
 then runs an LLM verification step that spot-checks artifacts across all repos.
-The playbook executor provides `on_failure: diagnose` recovery — if `punt release`
+The playbook executor provides `on_failure: diagnose` recovery — if `punt release run`
 fails mid-way, the executor reads the error output, diagnoses root cause,
 attempts a fix, and re-runs the step.
 
@@ -102,7 +102,7 @@ If any check fails, the release halts with an explicit error.
 
 Each sub-step checks for a diff before committing. If the substitution
 produces no change (already current), the step is skipped. Re-running
-`punt release X.Y.Z` after an interruption is safe — completed steps
+`punt release run X.Y.Z` after an interruption is safe — completed steps
 produce no diff and are skipped.
 
 ### Error Handling
@@ -145,9 +145,9 @@ checklist and exits non-zero if any check fails.
 interrupted releases:
 
 ```bash
-punt release 0.8.0 --resume-from propagate   # Skip 1-9, run 10-11
-punt release 0.8.0 --resume-from verify      # Skip 1-10, run 11 only
-punt release 0.8.0 --resume-from post-release # Skip 1-8, run 9-11
+punt release run 0.8.0 --resume-from propagate   # Skip 1-9, run 10-11
+punt release run 0.8.0 --resume-from verify      # Skip 1-10, run 11 only
+punt release run 0.8.0 --resume-from post-release # Skip 1-8, run 9-11
 ```
 
 Valid phase names: `preflight`, `bump`, `build`, `release-pr`, `tag`, `ci`,

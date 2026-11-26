@@ -25,19 +25,12 @@ class VerificationCheck:
 
 @final
 class MarketplacePinCheck:
-    """Verifies the marketplace-pin chain for marketplace-only plugins.
+    """Verify the marketplace-pin chain for marketplace-only plugins.
 
     Used only when a project has no ``install.sh`` — the profile-SHA check
     has no direct install URL to verify against, so the pin chain (profile
     -> install-all.sh's claude-plugins SHA -> that commit's
     marketplace.json) is the equivalent invariant.
-
-    ``matcher`` accepts the entry by its name or by a source URL for the
-    same owner and repository. The caller builds it from the repository name
-    (from the origin slug) and the marketplace short name (see
-    ``ReleaseProject.marketplace_name``), not the PyPI distribution name:
-    marketplace entries key on the plugin's short name (``punt``) while the
-    CLI knows the project by the distribution name (``punt-kit``).
     """
 
     __slots__ = ("_matcher", "_ops", "_tag", "_version")
@@ -50,6 +43,16 @@ class MarketplacePinCheck:
     def __new__(
         cls, matcher: EntryMatcher, version: str, tag: str, *, ops: ReleaseOps
     ) -> Self:
+        """Bind the check to the expected marketplace ``version`` and ``tag``.
+
+        Args:
+            matcher: Accepts the entry by its name or by a source URL for the
+                same owner and repository. Build it from the repository name
+                and the marketplace short name (see
+                ``ReleaseProject.marketplace_name``), not the PyPI distribution
+                name: entries key on the plugin's short name (``punt``), not
+                the distribution name (``punt-kit``).
+        """
         self = super().__new__(cls)
         self._matcher = matcher
         self._version = version
@@ -65,7 +68,11 @@ class MarketplacePinCheck:
     ) -> tuple[bool, str]:
         """Check a pinned claude-plugins commit's marketplace.json for this project.
 
-        Returns ``(passed, detail)``.
+        Returns:
+            ``(passed, detail)``; an absent sibling or unresolved commit fails.
+
+        Raises:
+            ReleaseError: The pinned marketplace.json is not a JSON object.
         """
         if cp_sibling is None:
             return False, "claude-plugins sibling not found"

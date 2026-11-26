@@ -11,6 +11,7 @@ import pytest
 
 from punt_kit import audit
 from punt_kit.audit import run_audit
+from punt_kit.audit_report import AuditOptions
 from punt_kit.audit_verdict import FAIL, INFO, PASS
 from punt_kit.detect import detect
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
@@ -49,7 +50,6 @@ def test_audit_compliant_project_passes(tmp_path: Path) -> None:
     """Audit exits cleanly for a fully compliant project."""
     _make_compliant_python(tmp_path)
 
-    # Should not raise SystemExit
     run_audit(str(tmp_path))
 
 
@@ -60,7 +60,7 @@ def test_audit_fix_creates_markdownlint(tmp_path: Path) -> None:
     (tmp_path / ".markdownlint.jsonc").unlink()
     (tmp_path / ".markdownlint-cli2.jsonc").unlink()
 
-    run_audit(str(tmp_path), fix=True)
+    run_audit(str(tmp_path), options=AuditOptions(fix=True))
 
     assert (tmp_path / ".markdownlint.jsonc").exists()
     content = (tmp_path / ".markdownlint.jsonc").read_text()
@@ -77,7 +77,7 @@ def test_audit_fix_creates_py_typed(tmp_path: Path) -> None:
     py_typed = tmp_path / "src" / "test_pkg" / "py.typed"
     py_typed.unlink()
 
-    run_audit(str(tmp_path), fix=True)
+    run_audit(str(tmp_path), options=AuditOptions(fix=True))
 
     assert py_typed.exists()
 
@@ -87,7 +87,7 @@ def test_audit_fix_creates_changelog(tmp_path: Path) -> None:
     _make_compliant_python(tmp_path)
     (tmp_path / "CHANGELOG.md").unlink()
 
-    run_audit(str(tmp_path), fix=True)
+    run_audit(str(tmp_path), options=AuditOptions(fix=True))
 
     changelog = tmp_path / "CHANGELOG.md"
     assert changelog.exists()
@@ -111,7 +111,7 @@ def test_audit_fix_idempotent(tmp_path: Path) -> None:
     (tmp_path / ".markdownlint.jsonc").unlink()
     (tmp_path / ".markdownlint-cli2.jsonc").unlink()
 
-    run_audit(str(tmp_path), fix=True)
+    run_audit(str(tmp_path), options=AuditOptions(fix=True))
     first_ml = (tmp_path / ".markdownlint.jsonc").read_text()
 
     run_audit(str(tmp_path))  # Second run without fix — should pass
@@ -126,7 +126,7 @@ def test_audit_fix_does_not_overwrite_existing(tmp_path: Path) -> None:
     custom = '{"MD013": true}\n'
     (tmp_path / ".markdownlint.jsonc").write_text(custom)
 
-    run_audit(str(tmp_path), fix=True)
+    run_audit(str(tmp_path), options=AuditOptions(fix=True))
 
     assert (tmp_path / ".markdownlint.jsonc").read_text() == custom
 
@@ -216,11 +216,9 @@ def test_audit_passes_with_extra_permissions(tmp_path: Path) -> None:
 
 
 def _make_compliant_plugin(tmp_path: Path, *, subdir: bool = False) -> Path:
-    """Create a compliant plugin project scaffold with dev commands.
+    """Create a compliant plugin fixture and return its plugin root.
 
-    ``subdir`` selects the DES-025 layout, where the whole surface lives under
-    ``plugin/``. Returns the plugin root so callers name paths the way the
-    audit does, rather than hardcoding a layout the fleet is migrating off.
+    If subdir is set, put the plugin surface under plugin/.
     """
     plugin_root = tmp_path / "plugin" if subdir else tmp_path
     (tmp_path / "README.md").write_text("# Test Plugin\n")
@@ -339,7 +337,7 @@ def test_audit_hybrid_fails_missing_release_scripts(
     """A hybrid project without the release scripts fails.
 
     The scripts drive the name swap that the release tag lands on, and a
-    hybrid project releases through `punt release`, which runs them.
+    hybrid project releases through `punt release run`, which runs them.
     """
     _make_compliant_hybrid(tmp_path)
     (tmp_path / "scripts" / "release-plugin.sh").unlink()
@@ -356,13 +354,8 @@ def test_audit_hybrid_fails_missing_release_scripts(
 def test_audit_pure_plugin_without_release_scripts_passes(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A pure plugin without the scripts is compliant, not a failure.
-
-    plugins.md "Release flow for pure plugins" says a pure plugin may lack
-    scripts/release-plugin.sh and do the swap-tag-restore by hand. Failing
-    dungeon, prfaq, and z-spec for following the standard is a
-    false-positive gate — and it must still emit a row, so the reader learns
-    the manual sequence applies rather than seeing nothing.
+    """A pure plugin without release scripts is compliant and reports the
+    manual swap, tag, and restore sequence.
     """
     _make_compliant_plugin(tmp_path)
     (tmp_path / "scripts" / "release-plugin.sh").unlink()
@@ -1012,7 +1005,7 @@ def test_audit_tolerates_malformed_settings_local(tmp_path: Path) -> None:
 def test_audit_hint_points_at_init_for_fixable_rules(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A dead rule in a well-formed tier is one punt init can remove."""
+    """A dead rule in a well-formed tier is one punt repo init can remove."""
     _make_compliant_python(tmp_path)
     _append_rule(tmp_path, "deny", "Write(.env)")
 
@@ -1020,7 +1013,7 @@ def test_audit_hint_points_at_init_for_fixable_rules(
         run_audit(str(tmp_path))
 
     out = capsys.readouterr().out
-    assert "run punt init" in out
+    assert "run punt repo init" in out
     assert "hand" not in out
 
 
@@ -1056,7 +1049,7 @@ def test_audit_hint_covers_both_kinds(
         run_audit(str(tmp_path))
 
     out = capsys.readouterr().out
-    assert "run punt init" in out
+    assert "run punt repo init" in out
     assert "hand" in out
 
 

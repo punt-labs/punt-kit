@@ -1,4 +1,4 @@
-"""Colored console reporting for the release workflow."""
+"""Report release progress and failures in the console."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from punt_kit.phases.shared.repo_slug import RepoSlug
 
 @final
 class Reporter:
-    """Prints colored status lines. Exactly one process-wide instance.
+    """Print colored release status through a process-wide instance.
 
     Messages carry caller text (stderr, paths), so every method redacts URL
     credentials from and escapes its ``msg``: a bracketed ``[remote rejected]``
@@ -34,6 +34,7 @@ class Reporter:
     # @final, so the two are equivalent, and Self would force an unsound
     # Self | Reporter union at the join point below.
     def __new__(cls) -> Reporter:
+        """Return the singleton release reporter."""
         instance = cls._instance
         if instance is None:
             instance = super().__new__(cls)
@@ -42,12 +43,15 @@ class Reporter:
         return instance
 
     def ok(self, msg: str) -> None:
+        """Print a success message."""
         self._console.print(f"  [green]✓[/green] {self._shown(msg)}")
 
     def info(self, msg: str) -> None:
+        """Print a progress message."""
         self._console.print(f"  [dim]▶[/dim] {self._shown(msg)}")
 
     def dry(self, msg: str) -> None:
+        """Print a dry-run preview."""
         self._console.print(f"  [yellow]DRY[/yellow] {self._shown(msg)}")
 
     def warn(self, msg: str) -> None:
@@ -65,6 +69,11 @@ class Reporter:
         self._console.print(f"  [red]✗[/red] {self._shown(msg)}")
 
     def fail(self, msg: str) -> NoReturn:
+        """Print and raise a redacted release failure.
+
+        Raises:
+            ReportedReleaseError: Always, after printing the redacted message.
+        """
         # The exception outlives the console line (it is retained and printed
         # again in the recap), so it carries the redacted text too.
         msg = RepoSlug.redacted(msg)

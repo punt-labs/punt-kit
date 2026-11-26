@@ -407,7 +407,7 @@ def test_an_error_in_flight_when_interrupted_is_still_shown_once(
         interrupted.clear()
 
     captured = capsys.readouterr()
-    assert exc_info.value.code == 1
+    assert exc_info.value.code == 130
     assert (flat(captured.out) + captured.err).count("unique-xyz") == 1
 
 

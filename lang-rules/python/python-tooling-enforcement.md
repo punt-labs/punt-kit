@@ -5,6 +5,8 @@ paths:
 
 # Tooling Enforcement Matrix
 
+**Updated:** 2026-11-19
+
 Every standard must be checkable. This file maps each rule to the tool(s) that
 can deterministically judge compliance. Rules without deterministic tooling are
 marked for LLM review — these are the gaps an agent must cover.
@@ -26,6 +28,16 @@ An agent MUST run these before reporting compliance.
 | PY-IC-2 | mypy | subclass of `@final` → error | exit 0 |
 | PY-EH-3 | ruff | `ruff check --select S101` | exit 0 (config-dependent) |
 | PY-OP-5 | ruff | `ruff check --select SIM,C1901` | exit 0 |
+| PY-DOC-1 | ruff | `uv run ruff check --select ERA001 .` (commented-out code) | exit 0 |
+| PY-DOC-2 | Tokenizer + AST | `make check-comments` (known tracker references in comments and docstrings) | exit 0 |
+| PY-DOC-3 | ruff | `uv run ruff check --select D,D401 --ignore D105,D107,D417 src/` (Google convention) | exit 0 |
+| PY-DOC-3 | pydoclint | `make check-docstrings` (gate for documented argument names) | exit 0 |
+| PY-LOG-2, PY-LOG-9 | Ruff | `uv run ruff check --select LOG,G,T20 src/` (select in consumer config) | exit 0; not semantic coverage |
+| PY-LOG-9 | Policy citation checker | `make check-standards` (punt-kit) | exit 0; coverage, dangling IDs, duplicates |
+| Public Python API reference | MkDocs + mkdocstrings | `uv run mkdocs build --strict` (projects with a public Python API) | exit 0 |
+
+See [Docstrings and API Reference](https://github.com/punt-labs/punt-kit/blob/main/standards/python.md#docstrings-and-api-reference)
+for the lint configuration and pydoclint findings the gate retains.
 
 **Composite check command** (prefer `make check` over individual invocations):
 
@@ -35,8 +47,12 @@ make check
 
 ## Tier 0: OO Score (Custom, Deterministic, Exit Code 0/1)
 
-The `tools/oo_score.py` script produces numeric OO quality metrics via AST
-analysis. No external dependencies. Exits 1 if any metric fails.
+The [`punt-oo-ratchet`](https://pypi.org/project/punt-oo-ratchet/) dev package
+produces numeric OO quality metrics via AST analysis, with no runtime
+dependencies. Depend on the pinned package, not an embedded copy of the tool
+(see `python-oo-adoption.md`). Diagnostic output exits 1 when aggregate
+metrics miss absolute thresholds; the `--check` gate instead enforces the
+committed baseline's must-improve contract on touched files.
 
 | Metric | Threshold | What It Catches |
 |--------|-----------|----------------|
@@ -55,16 +71,17 @@ analysis. No external dependencies. Exits 1 if any metric fails.
 **Usage**:
 
 ```bash
-python tools/oo_score.py path/to/module.py           # human-readable
-python tools/oo_score.py path/to/package/ --json      # machine-readable
-python tools/oo_score.py path/to/package/ --threshold  # per-file breakdown
+uv run oo-ratchet oo path/to/module.py             # human-readable
+uv run oo-ratchet oo path/to/package/ --json        # machine-readable
+uv run oo-ratchet oo path/to/package/ --threshold   # per-file breakdown
+make report                                      # project diagnostics
 ```
 
 **Agent protocol**: Run before AND after every change. Score must not regress.
 
 ## Tier 0b: External OO Metrics (pip-installable, JSON output)
 
-These complement `oo_score.py` with metrics it cannot compute.
+These complement `oo-ratchet oo` with additional diagnostics.
 
 **Install** (all work on Python 3.13):
 
@@ -169,7 +186,8 @@ make report SRC=src/<package>/              # full diagnostics, no fail-fast
 ```
 
 `make check` runs the full quality gate — lint, type checking, tests, and the
-OO ratchet (`make check-oo`) — per PL-TC-5.
+OO ratchet (`make check-oo`), coupling/cohesion (`make check-coupling`), and
+suppression counts (`make check-suppressions`) — per PL-TC-5 and PL-OA-2.
 `make report` adds the diagnostics: radon CC/MI, pylint design, cohesion LCOM,
 vulture dead code.
 
@@ -186,6 +204,7 @@ An agent SHOULD run these or implement them as pre-commit hooks.
 
 | Rule | Check | Command |
 |------|-------|---------|
+| PY-LOG-4, PY-LOG-9 | Ban `basicConfig` and unsafe rotating handlers, including aliases/subclasses/config strings | Planned source check; review until supplied |
 | PY-TS-1 | `from __future__ import annotations` present | `ruff check --select FA100` (exit 0) |
 | PY-CC-1 | No `__init__` in non-dataclass classes | `grep -rn "def __init__" --include="*.py"` (zero hits) |
 | PY-EN-1 | No public attributes | `grep -Pn "self\.[a-z][a-zA-Z_0-9]*\s*=" --include="*.py"` (zero hits) |
@@ -253,6 +272,17 @@ An agent must reason about the code to check these.
 
 | Rule | What to Check |
 |------|--------------|
+| PY-LOG-1 | Shared package, `dictConfig`, entry-point setup, separate pipelines and exporter independence; require consumer migration tests. |
+| PY-LOG-2 | Module loggers and escaped lazy arguments; Ruff alone cannot establish injection safety. |
+| PY-LOG-3 | Private log/SQLite/salt paths, atomic creation, existing/backup permissions; require consumer permission tests. |
+| PY-LOG-4 | Single owner or multi-process-safe rotation; require consumer concurrent-rollover tests. |
+| PY-LOG-5 | Final-record redaction, no content, security decisions, control escaping; require consumer adversarial tests. |
+| PY-LOG-6 | Levels, coverage, durable sinks and detached entry points; inspect running sinks. |
+| PY-LOG-7 | Versioned typed telemetry schemas, content rejection and salted identifiers; require consumer boundary tests. |
+| PY-LOG-8 | Retention, consent, off switches and failure isolation; require consumer exporter/control tests. |
+| PY-LOG-9 | Review source bans until the planned alias-aware check exists; citation coverage is not runtime correctness. |
+| PY-DOC-1, PY-DOC-2 | Remove non-compliant comments on sight. Reject redundant, stale, and historical prose and tracker references; preserve useful current rationale. |
+| PY-DOC-3 | Public contracts, selective sections, accurate caller-facing exceptions, and a complete runtime description for MCP tools. |
 | PY-OO-1 | Domain nouns with data + behavior are classes, not dicts + functions |
 | PY-OO-4 | TypedDicts not used as substitute for domain classes with behavior |
 | PY-OO-5 | Functions that read 3+ fields from an arg should be methods |

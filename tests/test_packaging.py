@@ -1,12 +1,7 @@
-"""Tests for what the built artifacts are allowed to contain.
+"""Tests for the contents of published distributions.
 
-punt-kit previously used hatchling, whose default sdist ships everything not
-VCS-ignored. That fails open: any untracked file in the tree lands in a
-published tarball, permanently and unlistably — and it did, in 0.12.0.
-
-The fix was an explicit allowlist; the durable fix is a backend that ships a
-declared module and nothing else. These tests guard the backend choice, since
-under `uv_build` there is no allowlist left to guard. See DES-026.
+The build backend must ship the declared module rather than the entire
+checkout, where local files could otherwise leak into a public artifact.
 """
 
 from __future__ import annotations
@@ -49,12 +44,7 @@ def _table(data: dict[str, object], *keys: str) -> dict[str, object] | None:
 
 
 def test_build_backend_fails_closed() -> None:
-    """uv_build ships the declared module; hatchling ships the whole tree.
-
-    The distinction is the default, not the configuration: a backend that
-    ships everything unless told otherwise puts every untracked file one
-    release away from a public index.
-    """
+    """Require a backend that ships only the declared module by default."""
     build_system = _table(_pyproject(), "build-system")
     assert build_system is not None
     assert build_system["build-backend"] == "uv_build"
@@ -68,22 +58,12 @@ def test_module_is_declared() -> None:
 
 
 def test_no_stale_hatch_configuration() -> None:
-    """Leftover hatch tables would be inert config that reads as protection.
-
-    A `[tool.hatch.build.targets.sdist]` allowlist under a uv_build project
-    does nothing, but anyone auditing the file would conclude the sdist is
-    scoped. Same failure mode as a permission rule that matches nothing.
-    """
+    """Do not declare a Hatch sdist allowlist that the active backend ignores."""
     assert _table(_pyproject(), "tool", "hatch") is None
 
 
 def test_license_is_declared_in_metadata() -> None:
-    """The PEP 639 fields that make the license ship.
-
-    This reads pyproject only — it proves the declaration exists, not that
-    the built artifact carries the file. The artifact claim is
-    test_built_wheel_carries_license_and_templates.
-    """
+    """Require the PEP 639 metadata that declares the license file."""
     project = _table(_pyproject(), "project")
     assert project is not None
     assert project["license"] == "MIT"
@@ -93,16 +73,7 @@ def test_license_is_declared_in_metadata() -> None:
 
 
 def test_built_wheel_carries_license_and_templates(tmp_path: Path) -> None:
-    """Inspect a real wheel, because the config said nothing was wrong.
-
-    The migration to uv_build silently dropped LICENSE from dist-info.
-    pyproject looked correct throughout — hatchling had been adding the file
-    without being asked, and nothing in the configuration recorded that.
-    Only diffing the built members caught it.
-
-    A metadata assertion would not have failed then and would not fail if the
-    backend changes again, so this builds the wheel and reads what is in it.
-    """
+    """Read the built wheel rather than assuming metadata guarantees its contents."""
     subprocess.run(
         ["uv", "build", "--wheel", "--out-dir", str(tmp_path)],
         cwd=PROJECT_ROOT,

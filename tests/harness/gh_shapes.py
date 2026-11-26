@@ -1,14 +1,7 @@
-"""Fixture-authoring types for the recorded ``gh`` envelope library.
+"""Fixture-authoring types for recorded GitHub CLI responses.
 
-These ``TypedDict``\\ s exist for exactly two things: readability when writing
-a new hand-authored fixture, and mypy coverage of ``load_gh_fixture`` below.
-They are never what a contract test validates a parser *against* —
-``tests/test_gh_fixture_contracts.py`` drives the real production collaborator
-methods against each fixture's raw ``stdout`` instead. A hand-maintained
-mirror of ``gh``'s response shapes cannot detect its own drift from the code
-it is meant to protect (a schema and a parser can go stale together and keep
-agreeing); driving the real parser against a static fixture can, because the
-parser itself is what changes when the source changes.
+Contract tests exercise the production parsers against raw fixture stdout;
+these types do not validate the wire format.
 """
 
 from __future__ import annotations

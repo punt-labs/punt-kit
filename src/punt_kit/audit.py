@@ -1,8 +1,9 @@
-"""punt audit — compliance check against Punt Labs standards."""
+"""punt repo audit — compliance check against Punt Labs standards."""
 
 from __future__ import annotations
 
 import importlib.resources
+import logging
 import re
 import shutil
 import subprocess
@@ -16,10 +17,18 @@ from rich.markup import escape
 from punt_kit.audit_github import GithubSettingsAudit
 from punt_kit.audit_layout import LayoutAudit
 from punt_kit.audit_permissions import PermissionsAudit
-from punt_kit.audit_verdict import FAIL, FIXED, INFO, PASS
+from punt_kit.audit_report import (
+    FAIL,
+    FIXED,
+    INFO,
+    PASS,
+    AuditOptions,
+    AuditReport,
+    Findings,
+)
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.errors import CommandFailure, ReleaseError
 from punt_kit.git_checkout import GitCheckout
-from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.install_urls import InstallUrl, InstallUrlRecognizer
 from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.text_file import TextFile
@@ -29,11 +38,10 @@ if TYPE_CHECKING:
 
 # No emoji codes: a finding that cites ``.gitignore:100:`` must print as written.
 console = Console(emoji=False)
-
-# One audit finding: (status, label, detail).
-type _Findings = list[tuple[str, str, str]]
+logger = logging.getLogger(__name__)
 
 TEMPLATES = importlib.resources.files("punt_kit") / "templates"
+_DEFAULTS = AuditOptions()
 
 
 def _doctor_invocation(binaries: list[str]) -> re.Pattern[str]:
@@ -53,37 +61,47 @@ def _doctor_invocation(binaries: list[str]) -> re.Pattern[str]:
     )
 
 
-def run_audit(path: str, *, fix: bool = False) -> None:
-    """Check compliance against Punt Labs standards.
+def run_audit(path: str, *, options: AuditOptions = _DEFAULTS) -> tuple[int, int]:
+    """Check a project against Punt Labs standards and print the findings.
 
-    When *fix* is True, create missing mechanical files from templates.
+    Args:
+        path: Project directory to audit.
+        options: Whether to create missing files or suppress routine output.
+
+    Raises:
+        SystemExit: With status 1 when ``path`` is not a directory, its
+            project files cannot be read, or any check fails.
     """
     root = Path(path).resolve()
     if not root.is_dir():
-        console.print(f"[red]Error:[/red] {root} is not a directory")
-        raise SystemExit(1)
+        message = f"{root} is not a directory"
+        console.print(f"[red]Error:[/red] {escape(message)}")
+        raise CommandFailure(message)
 
     try:
         info = detect(root)
     except ReleaseError as exc:
-        console.print(f"\n[bold]punt audit[/bold] — {root.name}")
+        logger.info("Audit stopped because project files could not be read")
+        console.print(f"\n[bold]punt repo audit[/bold] — {root.name}")
         console.print(f"  {FAIL} Project files are readable")
         console.print(f"      [dim]{escape(str(exc))}[/dim]")
-        raise SystemExit(1) from exc
+        raise CommandFailure(str(exc)) from exc
 
-    mode = "[bold]punt audit --fix[/bold]" if fix else "[bold]punt audit[/bold]"
-    console.print(f"\n{mode} — {root.name}")
-    lang = info.language or "none"
-    ptype = info.project_type or "unknown"
-    console.print(f"  Language: {lang}  Type: {ptype}\n")
+    if not options.quiet:
+        suffix = " --fix" if options.fix else ""
+        console.print(
+            f"\n[bold]punt repo audit{suffix}[/bold] — {escape(root.name)}\n"
+            f"  Language: {info.language or 'none'}"
+            f"  Type: {info.project_type or 'unknown'}\n"
+        )
 
-    checks: tuple[Callable[[], _Findings], ...] = (
+    checks: tuple[Callable[[], Findings], ...] = (
         partial(_check_ci, info),
         partial(_check_tool_config, info),
-        partial(_check_markdownlint, info, fix=fix),
+        partial(_check_markdownlint, info, fix=options.fix),
         partial(_check_markdownlint_content, info),
-        partial(_check_py_typed, info, fix=fix),
-        partial(_check_changelog, info, fix=fix),
+        partial(_check_py_typed, info, fix=options.fix),
+        partial(_check_changelog, info, fix=options.fix),
         partial(_check_beads, info),
         partial(_check_claude_md, info),
         PermissionsAudit(info).findings,
@@ -95,33 +113,12 @@ def run_audit(path: str, *, fix: bool = False) -> None:
         partial(_check_plugin_version_sync, info),
         GithubSettingsAudit(info.root).findings,
     )
-    results = [finding for check in checks for finding in _guarded(check)]
-
-    # Print results
-    passes = 0
-    failures = 0
-    fixes = 0
-    for status, label, detail in results:
-        console.print(f"  {status} {label}")
-        if detail:
-            console.print(f"      [dim]{detail}[/dim]")
-        if status == PASS:
-            passes += 1
-        elif status == FAIL:
-            failures += 1
-        elif status == FIXED:
-            fixes += 1
-
-    summary = f"  [bold]{passes} passed[/bold], [bold]{failures} failed[/bold]"
-    if fixes:
-        summary += f", [bold yellow]{fixes} fixed[/bold yellow]"
-    console.print(f"\n{summary}\n")
-
-    if failures > 0:
-        raise SystemExit(1)
+    return AuditReport(
+        [finding for check in checks for finding in _guarded(check)]
+    ).report(console, quiet=options.quiet)
 
 
-def _guarded(check: Callable[[], _Findings]) -> _Findings:
+def _guarded(check: Callable[[], Findings]) -> Findings:
     """Run one check; a file it cannot read becomes a FAIL naming the file.
 
     Without this one unreadable file would abort the audit and discard every
@@ -276,7 +273,7 @@ def _check_markdownlint(info: ProjectInfo, *, fix: bool) -> list[tuple[str, str,
             results.append((FIXED, f"{filename} created", ""))
         else:
             results.append(
-                (FAIL, f"{filename} exists", "Missing — run punt audit --fix")
+                (FAIL, f"{filename} exists", "Missing — run punt repo audit --fix")
             )
 
     return results
@@ -305,7 +302,6 @@ def _check_markdownlint_content(info: ProjectInfo) -> list[tuple[str, str, str]]
             return [
                 (PASS, "Markdown lint passes", f"{len(tracked_md)} file(s) checked")
             ]
-        # Count errors from output
         error_lines = [
             line
             for line in result.stdout.splitlines()
@@ -362,7 +358,7 @@ def _check_py_typed(info: ProjectInfo, *, fix: bool) -> list[tuple[str, str, str
         (
             FAIL,
             "py.typed marker exists",
-            f"Missing {_relpath(py_typed, info.root)} — run punt audit --fix",
+            f"Missing {_relpath(py_typed, info.root)} — run punt repo audit --fix",
         )
     ]
 
@@ -383,7 +379,7 @@ def _check_changelog(info: ProjectInfo, *, fix: bool) -> list[tuple[str, str, st
         )
         return [(FIXED, "CHANGELOG.md created", "")]
 
-    return [(FAIL, "CHANGELOG.md exists", "Missing — run punt audit --fix")]
+    return [(FAIL, "CHANGELOG.md exists", "Missing — run punt repo audit --fix")]
 
 
 def _check_beads(info: ProjectInfo) -> list[tuple[str, str, str]]:
@@ -403,7 +399,7 @@ def _check_claude_md(info: ProjectInfo) -> list[tuple[str, str, str]]:
         (
             PASS if info.has_claude_md else FAIL,
             "CLAUDE.md exists",
-            "" if info.has_claude_md else "Missing CLAUDE.md — run punt init",
+            "" if info.has_claude_md else "Missing CLAUDE.md — run punt repo init",
         )
     ]
 
@@ -473,7 +469,7 @@ def _check_plugin_dev_isolation(
     """Check plugin repos follow the dev/prod namespace isolation standard.
 
     Checks:
-    1. Exactly one plugin.json — a second one means a half-finished move
+    1. Exactly one plugin.json — a second one is a stale copy
     2. plugin.json name ends in -dev (working tree is the dev namespace)
     3. Release/restore scripts exist (hybrid projects only)
     4. Every prod command has a -dev variant
@@ -483,10 +479,9 @@ def _check_plugin_dev_isolation(
 
     results: list[tuple[str, str, str]] = []
 
-    # A stale manifest left behind by an incomplete move to the plugin/
-    # layout is worse than a missing one: every reader takes the winning
-    # candidate and the loser drifts unnoticed until a release swaps the
-    # wrong file.
+    # A stale second manifest is worse than a missing one: every reader takes
+    # the winning candidate and the loser drifts unnoticed until a release
+    # swaps the wrong file.
     if len(info.plugin_manifests) > 1:
         found = ", ".join(
             p.relative_to(info.root).as_posix() for p in info.plugin_manifests
@@ -503,11 +498,10 @@ def _check_plugin_dev_isolation(
 
     results.extend(_check_plugin_dev_suffix(info))
 
-    # Check release/restore scripts exist. Required of hybrid projects only:
-    # plugins.md "Release flow for pure plugins" states a pure plugin may lack
-    # scripts/release-plugin.sh and do the swap-tag-restore by hand (DES-007).
-    # Failing dungeon, prfaq, and z-spec for following the standard is a
-    # false-positive gate, and a gate that cries wolf gets ignored wholesale.
+    # Required of hybrid projects only: plugins.md "Release flow for pure
+    # plugins" lets a pure plugin lack scripts/release-plugin.sh and do the
+    # swap-tag-restore by hand, so failing one would be a false
+    # positive.
     release_script = info.root / "scripts" / "release-plugin.sh"
     restore_script = info.root / "scripts" / "restore-dev-plugin.sh"
     missing_scripts: list[str] = []
@@ -534,9 +528,8 @@ def _check_plugin_dev_isolation(
             )
         )
 
-    # Check -dev command variants. Anchored on the plugin root, not the repo
-    # root: under the plugin/ layout the commands moved with the manifest, and
-    # a repo-root glob would find nothing and report no findings at all.
+    # Anchored on the plugin root, not the repo root: commands live beside the
+    # manifest, and a repo-root glob would find nothing and report nothing.
     commands_dir = info.plugin_root / "commands"
     if commands_dir.is_dir():
         prod_commands = sorted(
@@ -666,7 +659,7 @@ def _check_readme_sha_pins(info: ProjectInfo) -> list[tuple[str, str, str]]:
 
 
 def _readme_pin_problems(refs: list[InstallUrl], slug: str) -> list[str]:
-    """What is wrong with the install URLs ``refs``, one phrase per kind of problem."""
+    """Describe what is wrong with ``refs``, one phrase per kind of problem."""
     problems: list[str] = []
     branches = sorted({r.segment for r in refs if r.is_trusted and not r.is_sha_pin})
     if branches:
@@ -741,7 +734,6 @@ def _find_package_dir(info: ProjectInfo) -> Path | None:
     if not src_dir.is_dir():
         return None
 
-    # Look for directories with __init__.py under src/
     for child in sorted(src_dir.iterdir()):
         if child.is_dir() and (child / "__init__.py").exists():
             return child

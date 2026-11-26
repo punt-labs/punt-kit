@@ -6,6 +6,7 @@ import json
 import os
 from typing import TYPE_CHECKING
 
+import pytest
 from typer.testing import CliRunner
 
 from punt_kit.__main__ import app
@@ -16,8 +17,6 @@ from punt_kit.enablement import IMPORT_LINE, PuntEnablement
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 runner = CliRunner()
 
@@ -30,8 +29,88 @@ def _settings(root: Path) -> dict[str, dict[str, list[str]]]:
 
 
 def _failures(root: Path) -> list[str]:
-    result = runner.invoke(app, ["audit", str(root)])
+    result = runner.invoke(app, ["repo", "audit", str(root)])
     return [line for line in result.output.splitlines() if FAIL in line]
+
+
+@pytest.mark.parametrize("verb", ["enable", "disable"])
+@pytest.mark.parametrize("outcome", ["changed", "no-op", "failed"])
+def test_toggle_logs_outcome(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, verb: str, outcome: str
+) -> None:
+    punt = PuntEnablement(tmp_path)
+    if (verb == "disable" and outcome != "no-op") or (
+        verb == "enable" and outcome == "no-op"
+    ):
+        punt.enable()
+    if outcome == "failed":
+        settings = tmp_path / ".claude" / "settings.json"
+        settings.parent.mkdir(exist_ok=True)
+        settings.write_text("{private-user-content\n")
+    caplog.clear()
+    with caplog.at_level("INFO", logger="punt_kit.enablement"):
+        report = getattr(punt, verb)()
+    records = [r for r in caplog.records if r.name == "punt_kit.enablement"]
+    assert len(records) == 1
+    message = records[0].getMessage()
+    assert f"Punt {verb} outcome={outcome}" in message
+    assert bool(report.error) == (outcome == "failed")
+    assert f"skill permissions changed={3 if outcome == 'changed' else 0}" in message
+    assert f"activation marker changed={outcome == 'changed'}" in message
+    assert f"guide import changed={outcome == 'changed'}" in message
+    if outcome == "failed":
+        assert "reason=permission settings rejected or inaccessible" in message
+    assert str(tmp_path) not in message
+    assert "private-user-content" not in message
+    assert "/" not in message
+    assert records[0].exc_info is None
+
+
+@pytest.mark.parametrize("verb", ["enable", "disable"])
+def test_toggle_logs_partial_failure_without_exception_content(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    verb: str,
+) -> None:
+    punt = PuntEnablement(tmp_path)
+    if verb == "disable":
+        punt.enable()
+
+    def fail(*args: object) -> None:
+        raise PermissionError(f"private-user-content {tmp_path}")
+
+    if verb == "enable":
+        monkeypatch.setattr(PuntEnablement, "_deposit", fail)
+    else:
+        monkeypatch.setattr(ClaudeMdImport, "prune", fail)
+    caplog.clear()
+    with caplog.at_level("INFO", logger="punt_kit.enablement"):
+        report = getattr(punt, verb)()
+    assert report.error
+    assert report.changes
+    assert f"Punt {verb} outcome=failed; skill permissions changed=3" in caplog.text
+    assert "reason=PermissionError" in caplog.text
+    assert "private-user-content" not in caplog.text
+    assert str(tmp_path) not in caplog.text
+
+
+@pytest.mark.parametrize("verb", ["enable", "disable"])
+def test_toggle_logs_inspection_failure(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    verb: str,
+) -> None:
+    def fail(*args: object) -> str:
+        raise OSError(f"private-user-content {tmp_path}")
+
+    monkeypatch.setattr(PuntEnablement, "_refusal", fail)
+    with caplog.at_level("INFO", logger="punt_kit.enablement"), pytest.raises(OSError):
+        getattr(PuntEnablement(tmp_path), verb)()
+    assert f"Punt {verb} failed during configuration inspection: OSError" in caplog.text
+    assert "private-user-content" not in caplog.text
+    assert str(tmp_path) not in caplog.text
 
 
 class TestEnable:
@@ -154,7 +233,7 @@ class TestHardening:
         (tmp_path / ".punt-labs").write_text("a file, not a directory")
         result = runner.invoke(app, ["--json", "enable", str(tmp_path)])
         assert result.exit_code == 1
-        assert "Skill(punt:*)" in json.loads(result.output)["error"]
+        assert "Not a directory" in json.loads(result.stdout)["error"]
 
     def test_disable_runs_with_a_symlinked_guide(self, tmp_path: Path) -> None:
         PuntEnablement(tmp_path).enable()

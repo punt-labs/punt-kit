@@ -28,16 +28,17 @@ _BREW_TARGET = re.compile(rf"^{re.escape(BREW_TARGET)}[ \t]*:", re.MULTILINE)
 
 
 def has_brew_formula_target(root: Path) -> bool:
-    """True when ``root``'s Makefile declares a ``brew-formula`` target."""
+    """Report whether ``root``'s Makefile declares a ``brew-formula`` target."""
     makefile = root / "Makefile"
     return makefile.is_file() and bool(_BREW_TARGET.search(TextFile(makefile).read()))
 
 
 def tap_owned_paths(info: ProjectInfo, *, ops: ReleaseOps) -> tuple[str, ...]:
-    """The tap files a release of this project writes; empty if it never does.
+    """Return the tap files a release of this project writes.
 
     Recovery resets only these. A project without the ``brew-formula`` target,
-    or whose repo name is unknown, owns nothing in the shared tap.
+    or whose repo name is unknown, owns nothing in the shared tap and gets an
+    empty tuple.
     """
     if not has_brew_formula_target(info.root):
         return ()
@@ -51,7 +52,7 @@ def tap_owned_paths(info: ProjectInfo, *, ops: ReleaseOps) -> tuple[str, ...]:
 
 
 def tap_sibling(info: ProjectInfo, *, ops: ReleaseOps) -> SiblingRepo | None:
-    """The tap checkout, when this project regenerates a formula into it.
+    """Return the tap checkout, when this project regenerates a formula into it.
 
     That takes a ``brew-formula`` Makefile target and a sibling tap checkout.
     The tap is optional, like the website: an absent one is not a failure.
@@ -62,15 +63,18 @@ def tap_sibling(info: ProjectInfo, *, ops: ReleaseOps) -> SiblingRepo | None:
 
 
 def tap_formula(tap: SiblingRepo, formula: str) -> Path | None:
-    """``Formula/<formula>.rb`` in ``tap``, when the tap already carries it."""
+    """Return ``Formula/<formula>.rb`` in ``tap``, when the tap carries it."""
     path = tap.path / "Formula" / f"{formula}.rb"
     return path if path.is_file() else None
 
 
 @final
 class HomebrewTapPropagator:
-    """10e. Regenerates Formula/<name>.rb in homebrew-tap through the project's
-    own ``make brew-formula FORMULA_OUT=<path>``, with a CHANGELOG line."""
+    """Regenerate the project's formula in homebrew-tap (phase 10e).
+
+    The project's own ``make brew-formula FORMULA_OUT=<path>`` writes
+    ``Formula/<name>.rb``; the tap's CHANGELOG gets a bump line.
+    """
 
     __slots__ = ("_info", "_ops", "_skips")
 
@@ -81,6 +85,7 @@ class HomebrewTapPropagator:
     def __new__(
         cls, info: ProjectInfo, *, ops: ReleaseOps, skips: SkipRecorder
     ) -> Self:
+        """Bind the propagator to the project, reporting through ``ops``."""
         self = super().__new__(cls)
         self._info = info
         self._ops = ops
@@ -94,6 +99,20 @@ class HomebrewTapPropagator:
         dry_run: bool,
         merge_sibling: Callable[..., bool],
     ) -> None:
+        """Regenerate the formula for ``version`` and merge it into the tap.
+
+        A missing target, tap checkout, formula or tap changelog is skipped or
+        recorded for manual action rather than failing the release.
+
+        Args:
+            merge_sibling: Commits ``files`` on a branch in the tap and merges
+                them through a PR; returns False when nothing changed.
+
+        Raises:
+            ReleaseError: The tap checkout is not ready, ``make brew-formula``
+                fails or leaves the formula at another version, or the merge
+                fails.
+        """
         info = self._info
         ops = self._ops
         if not has_brew_formula_target(info.root):

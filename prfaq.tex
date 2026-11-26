@@ -256,11 +256,11 @@ gets into an agent's hands.
 that agents auto-load when they touch a matching file. They are prose on
 purpose: the consumer is a language model and a human reviewer, and prose is
 what both read best. What is machine-checkable is checked separately and
-deterministically --- \texttt{punt audit} is
+deterministically --- \texttt{punt repo audit} is
 hand-written Python that verifies the org's conventions in a repo (CI
 workflows, tool config, permissions, Makefile targets, README SHA pins, plugin
 version sync, branch-protection rulesets) and reports each finding with its
-rule. \texttt{punt init} scaffolds a new repo that already satisfies them.
+rule. \texttt{punt repo init} scaffolds a new repo that already satisfies them.
 
 \textbf{Tools --- the direction, stated as such.} Punt Labs ships around a
 dozen of its own tools, and a repo should be able to say which ones it uses.
@@ -281,14 +281,14 @@ CLI, and the markers are committed in nine repos for biff and three for ethos.
 invested next step, not a shipped one
 (see \faqref{faq:kit-manager}, \featureref{feat:kit-manager}).
 
-\textbf{Workflows.} \texttt{punt release} is an 11-phase release engine ---
+\textbf{Workflows.} \texttt{punt release run} is an 11-phase release engine ---
 preflight, version bump, build, release PR, tag, CI wait, GitHub release, PyPI
 verification, post-release, cross-repo propagation, and a final verify pass.
 It runs on every release, and in the operator's judgment it is the most-used
 feature in the org --- judgment rather than measurement, because nothing logs
 usage yet (\faqref{faq:metrics}).
 
-\textbf{Compliance.} \texttt{punt audit} and \texttt{punt pii} are the
+\textbf{Compliance.} \texttt{punt repo audit} and \texttt{punt repo scan-pii} are the
 deterministic checks: convention conformance and a scan for emails, home
 directory paths, and hostnames, with a \texttt{--staged} mode for pre-commit.
 
@@ -332,9 +332,9 @@ re-derive from memory each time. I want to run the file instead.''}
 \prsection{Getting Started}
 
 Install with \texttt{install.sh} (or \texttt{uv tool install punt-kit} if uv is
-already present). In a new repo, \texttt{punt init} scaffolds CI workflows,
+already present). In a new repo, \texttt{punt repo init} scaffolds CI workflows,
 tool config, permissions, and a \texttt{CLAUDE.md} that references the
-standards. \texttt{punt audit} reports where an existing repo diverges.
+standards. \texttt{punt repo audit} reports where an existing repo diverges.
 \texttt{/punt:auto list} shows the playbooks available, and
 \texttt{/punt:auto release} runs a release end to end. Nothing phones home;
 every command runs locally against the checkout in front of it.
@@ -363,7 +363,7 @@ punt-kit is public at {\small\texttt{github.com/punt-labs/punt-kit}}, on PyPI
 as \texttt{punt-kit}, and on the punt-labs Claude Code plugin marketplace as
 \texttt{punt@punt-labs}, under the MIT license. It is public because the org's
 other tools install it, not because it is being marketed. For a Punt Labs repo
-that has not adopted it: run \texttt{punt audit}, fix what it reports, and put
+that has not adopted it: run \texttt{punt repo audit}, fix what it reports, and put
 the standards reference in \texttt{CLAUDE.md}.
 
 \newpage
@@ -442,7 +442,7 @@ Punt Labs.
     \item \textbf{Auto-load.} \texttt{lang-rules/} holds per-language coding
       rules (Python, Go, C, Swift) that load automatically when an agent touches
       a matching file, scoped by \texttt{paths:} frontmatter.
-    \item \textbf{Check.} \texttt{punt audit} is hand-written deterministic
+    \item \textbf{Check.} \texttt{punt repo audit} is hand-written deterministic
       Python that verifies the conventions a machine can verify --- CI
       workflows, tool config, permissions, Makefile targets, README SHA pins,
       plugin version sync, branch-protection rulesets --- and reports each
@@ -468,7 +468,7 @@ Punt Labs.
   \textbf{A name collision, resolved.} The CLI subcommand that renders and
   merges managed sections in project files (Makefile, \texttt{settings.json})
   used to be \texttt{punt auto <target>}, one word away from the unrelated
-  playbook executor. It is now \texttt{punt seed <target>}, renamed outright
+  playbook executor. It is now \texttt{punt repo seed <target>}, renamed outright
   with no alias, so \texttt{auto} belongs to \texttt{/punt:auto <playbook>}
   alone --- the executor the self-prompting work builds on --- before the
   state-machine work makes the word load-bearing vocabulary.
@@ -504,10 +504,10 @@ Punt Labs.
 
 \begin{faqpair}{How do I get started?}
   Install via \texttt{install.sh}, or \texttt{uv tool install punt-kit} if uv
-  is already present. In a new repo, \texttt{punt init} scaffolds CI workflows,
+  is already present. In a new repo, \texttt{punt repo init} scaffolds CI workflows,
   tool config, permissions, and a \texttt{CLAUDE.md}; it detects the project
   type and is idempotent, so re-running updates without overwriting
-  customizations. In an existing repo, \texttt{punt audit} reports what
+  customizations. In an existing repo, \texttt{punt repo audit} reports what
   diverges. \texttt{/punt:auto list} shows the available playbooks.
 \end{faqpair}
 
@@ -586,7 +586,7 @@ Punt Labs.
 
   \begin{itemize}[nosep]
     \item \textbf{The release engine is exercised on every release.}
-      \texttt{punt release} drives all eleven phases, including cross-repo
+      \texttt{punt release run} drives all eleven phases, including cross-repo
       propagation into sibling repos, and it is invoked through
       \texttt{/punt:auto release}.
     \item \textbf{The standards corpus is consumed fleet-wide.} 29 normative
@@ -637,7 +637,7 @@ Punt Labs.
     orchestrates rather than reimplements (\featureref{feat:no-linting}) \\
   Copier & Template scaffolding with lifecycle
     updates~\cite{copier2024comparisons} & Idempotent re-templating, which
-    \texttt{punt init} approximates \\
+    \texttt{punt repo init} approximates \\
   \bottomrule
   \end{tabularx}
   \renewcommand{\arraystretch}{1.0}
@@ -701,7 +701,7 @@ Punt Labs.
 \end{faqpair}
 
 \begin{faqpair}{What dependencies exist on other teams or systems?}
-  \texttt{punt release} depends on GitHub (via \texttt{gh}), PyPI, and on
+  \texttt{punt release run} depends on GitHub (via \texttt{gh}), PyPI, and on
   sibling repos being checked out locally for cross-repo propagation.
   Distribution depends on PyPI and the Claude Code plugin marketplace.
 
@@ -722,10 +722,10 @@ Punt Labs.
   \begin{itemize}[nosep]
     \item Standards corpus --- 29 documents plus \texttt{lang-rules/} for
       Python, Go, C, and Swift
-    \item \texttt{punt init} (scaffold, idempotent, project-type detection),
-      \texttt{punt audit}, \texttt{punt pii}, \texttt{punt doctor},
+    \item \texttt{punt repo init} (scaffold, idempotent, project-type detection),
+      \texttt{punt repo audit}, \texttt{punt repo scan-pii}, \texttt{punt doctor},
       \texttt{punt status}
-    \item \texttt{punt release} --- the 11-phase engine, plus
+    \item \texttt{punt release run} --- the 11-phase engine, plus
       \texttt{--resume-from} for restarting at any phase
     \item \texttt{/punt:auto} playbook executor and six playbooks; the Claude
       Code plugin on the punt-labs marketplace
@@ -771,7 +771,7 @@ Punt Labs.
   case for the time is internal leverage:
   \begin{itemize}[nosep]
     \item \textbf{It is the substrate the other tools ship on.} biff, quarry,
-      vox, and lux all document \texttt{punt release} as their release path.
+      vox, and lux all document \texttt{punt release run} as their release path.
       Time spent here is amortized across every repo that releases.
     \item \textbf{It is how conventions reach agents at all.} The corpus plus
       the \texttt{@}-import architecture is the delivery mechanism for
@@ -789,7 +789,7 @@ Punt Labs.
   Internal, and chosen so that a bad number means something is actually wrong:
   \begin{enumerate}[nosep]
     \item \textbf{Repos with standards activated} --- how many of the org's
-      repos reference the corpus and pass \texttt{punt audit}. Today: 26 of 30
+      repos reference the corpus and pass \texttt{punt repo audit}. Today: 26 of 30
       reference it; conformance is unmeasured.
     \item \textbf{Releases run through the engine} --- the share of releases
       that complete via \texttt{/punt:auto release} without the operator
@@ -853,7 +853,7 @@ Value & \textcolor{RiskRed}{High} &
   often enough to be distrusted, the DSL buys nothing and the value is only
   what already ships (see \faqref{faq:next-step}). \\
 Usability & \textcolor{RiskAmber}{Medium} &
-  The shipped CLI is easy: \texttt{punt init}, \texttt{punt audit},
+  The shipped CLI is easy: \texttt{punt repo init}, \texttt{punt repo audit},
   \texttt{/punt:auto release}, no configuration. The new surface is not.
   Writing a state machine --- states, ordered guards, idempotent visits --- is
   a harder authoring task than typing the prompt it replaces, and the person
@@ -918,7 +918,7 @@ convention ships, punt's manager surface does not
     Makefile targets, README SHA pins, plugin version sync, and
     branch-protection rulesets, each finding reported with its
     rule}\label{feat:deterministic-audit}
-  \featureitem{Release engine}{\pillar{Workflows}\texttt{punt release} --- the
+  \featureitem{Release engine}{\pillar{Workflows}\texttt{punt release run} --- the
     11-phase pipeline from preflight through cross-repo propagation and a final
     verify, with \texttt{--resume-from} to restart at any phase. Runs on every
     release in the org}\label{feat:release}
@@ -928,7 +928,7 @@ convention ships, punt's manager surface does not
     strategies. Cross-repo rollout is a playbook here ---
     \texttt{standards-rollout} and \texttt{permissions-rollout} propagate a
     change across the org}\label{feat:playbooks}
-  \featureitem{Compliance scans}{\pillar{Compliance}\texttt{punt pii} ---
+  \featureitem{Compliance scans}{\pillar{Compliance}\texttt{punt repo scan-pii} ---
     emails, home directory paths, and \texttt{.local} hostnames, with
     \texttt{--staged} for pre-commit}\label{feat:pii}
   \featureitem{The two shipped client surfaces}{\pillar{All four}the
@@ -966,7 +966,7 @@ and the client surfaces the engine-and-clients model in
     \faqref{faq:metrics} are measured rather than
     recalled}\label{feat:usage-logging}
   \featureitem{Audit revival keyed to enabled policy}{\pillar{Compliance +
-    Tools}scope \texttt{punt audit} to what a repo has actually enabled, so
+    Tools}scope \texttt{punt repo audit} to what a repo has actually enabled, so
     each repo is measured against its own declared kit instead of one fixed
     list of conventions}\label{feat:audit-revival}
   \featureitem{Reconcile on the new engine}{\pillar{Standards}\texttt{/punt:reconcile}

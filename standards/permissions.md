@@ -49,7 +49,7 @@ valid: it gates the tool itself rather than a path. See section 3.
 This applies to `settings.local.json` exactly as it does to `settings.json` —
 the warning names whichever file the rule came from.
 
-`punt audit` reports unmatched rules in both files. `punt init` removes them.
+`punt repo audit` reports unmatched rules in both files. `punt repo init` removes them.
 
 **Cleanup drops dead rules; it never rewrites them.** Every rule it removes
 was already inert, so effective permissions are identical before and after.
@@ -154,7 +154,7 @@ owns it, and these settings scaffold a development environment.
 
 Every Punt Labs plugin wildcard (`mcp__plugin_vox_mic__*`,
 `mcp__plugin_quarry_quarry__*`, and so on) is granted by that tool's `enable`
-and removed by its `disable`. `punt init` never seeds one, and a repo carries a
+and removed by its `disable`. `punt repo init` never seeds one, and a repo carries a
 plugin wildcard only because that tool is enabled there.
 
 Each plugin wildcard is the tool prefix Claude Code derives from the plugin manifest:
@@ -224,7 +224,7 @@ Projects add their own build tools as needed:
 | CLI project | `Bash(<cli-name>-server:*)` when the project declares a `<cli-name>-server` entry point; nothing otherwise. The CLI rule itself is in `<tool> enable`'s set and reaches the tool's own repo the way it reaches every repo: by running `<tool> enable` there. `enable` grants the CLI, not the server binary, so the server rule stays here. |
 
 `Bash(bd:*)` is baseline because `bd` is an external tool with no `enable`.
-`Bash(punt:*)` is baseline because `punt init` scaffolds this file and the
+`Bash(punt:*)` is baseline because `punt repo init` scaffolds this file and the
 standards tool must run unprompted from the first scaffold; `punt enable`'s
 set (tool-enable-disable.md § 2.10) is its guide import and its
 `Skill(punt:*)` rule, never a CLI rule, so the value is in one place.
@@ -262,7 +262,7 @@ any skill name with no `plugin:` prefix — is non-conformant.
 plugin's `enable` set allows `Skill(<plugin>:*)` and puts an exact
 `Skill(<plugin>:<cmd>)` in `permissions.ask` for each command whose
 `allowed-tools` would make an unsafe operation run unprompted (section 6,
-principle 3). `punt init` never seeds a `Skill()` rule; a repo carries one
+principle 3). `punt repo init` never seeds a `Skill()` rule; a repo carries one
 only because that tool is enabled there, and `<tool> disable` removes it.
 
 ### Cross-project file access
@@ -671,11 +671,11 @@ takes an exclusive lock. See
    its tool's `enable` runs in the repo.
 2. Create `settings.local.json` with local path permissions (section 5).
 3. Add `.claude/settings.local.json` to `.gitignore`.
-4. Verify with `punt audit`.
+4. Verify with `punt repo audit`.
 
 ### Existing repositories
 
-Run `punt audit` to check compliance. The audit checks:
+Run `punt repo audit` to check compliance. The audit checks:
 
 - All required deny rules are present
 - `mcp__github__*` is present (section 3)
@@ -684,7 +684,7 @@ Run `punt audit` to check compliance. The audit checks:
 - `settings.local.json` is gitignored
 - No local paths appear in `settings.json`
 
-`punt init` removes unmatched path rules from both `settings.json` and
+`punt repo init` removes unmatched path rules from both `settings.json` and
 `settings.local.json`, per the table in section 1.
 
 ### Adding new deny rules
@@ -731,6 +731,6 @@ multi-client scenarios without a superuser path.
 **Admin verbs stay on the CLI.** Process supervision, install,
 uninstall, enable, disable, and doctor never appear on MCP, REST, or
 the library surface (see [tool-enable-disable.md § 2.3](tool-enable-disable.md#23-the-enable--disable-convention)
-and [cli.md § Layer 2](cli.md#layer-2-admin-commands)). Exposing them
+and [CLI-9](cli.md#cli-9-project-product-capabilities-without-exposing-administration)). Exposing them
 on any client surface an agent-turn can reach recreates the
 superuser surface this rule forbids.

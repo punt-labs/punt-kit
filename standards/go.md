@@ -1,8 +1,13 @@
 # Go Standards
 
+**Updated:** 2026-11-22
+
 Standards for all Punt Labs Go projects. This document is the canonical
 reference --- individual project CLAUDE.md files should reference it, not
 duplicate it.
+
+Follow the [Go logging and telemetry rules](../lang-rules/go/go-logging.md)
+for the [Logging](logging.md) and [Telemetry](telemetry.md) policies.
 
 Go is idiomatic in its own paradigm. It is a language of composition, of small
 interfaces satisfied structurally, and of explicit error handling, and we write
@@ -38,7 +43,7 @@ allows: two processes, one engine, complementary jobs.
 ethos is the same model with the daemon deferred. It is a Go tool whose engine
 lives under `internal/` --- `internal/identity`, `internal/attribute`,
 `internal/mission` --- and whose surfaces are the `ethos` CLI in `cmd/ethos` and
-an MCP server that `ethos serve` starts over stdio. ethos keeps its state as YAML
+an MCP server over stdio. ethos keeps its state as YAML
 on disk with no concurrent writers, so it has no daemon; architecture.md names
 it as the example of a tool that defers its daemon until scale demands one.
 Because its CLI and its MCP surface already sit as thin clients over a clean

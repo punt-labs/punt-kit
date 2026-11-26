@@ -1,4 +1,4 @@
-"""Tests for rewriting a JSON file as it was found."""
+"""Tests for rewriting a JSON file without changing its formatting."""
 
 from __future__ import annotations
 

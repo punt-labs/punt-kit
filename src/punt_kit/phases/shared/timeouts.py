@@ -1,4 +1,4 @@
-"""Timeout budgets for subprocess calls made during a release.
+"""Define subprocess timeout budgets for the release workflow.
 
 Legitimate PY-OO-7 primitives module — no class here, nothing to be
 "missing methods on".
@@ -18,9 +18,9 @@ from __future__ import annotations
 # GIT_HOOK whatever it asks for (see ``HookFiringCommand``).
 DEFAULT_RUN = 60
 
-# ``punt init``'s ``bd init``: creates a local database and may contact a
+# ``punt repo init``'s ``bd init``: creates a local database and may contact a
 # shared Dolt server. Seconds when healthy; two minutes separates a slow
-# server from a hung one, so ``punt init`` never waits forever on it.
+# server from a hung one, so ``punt repo init`` never waits forever on it.
 BD_INIT = 120
 
 # uv resolves dependencies, downloads wheels, and may build native bindings.

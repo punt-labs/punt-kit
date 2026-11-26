@@ -1,15 +1,13 @@
-"""``punt enable`` / ``punt disable``: punt turning itself on in one repo.
+"""Manage punt activation in a repository.
 
-Per ``tool-enable-disable.md`` §2.3 and §2.10, ``enable`` grants punt's
-permission rules, deposits punt's user guide at ``.punt-labs/punt/CLAUDE.md``,
-writes the ``enabled`` marker and adds the ``@.punt-labs/punt/CLAUDE.md`` line
-to the repo ``CLAUDE.md``. ``disable`` reverses the rules, the import line and
-the marker, and leaves the guide in place, dormant (§2.9).
+Enablement writes the permission rules, guide, marker, and import line.
+Disabling removes everything except the guide.
 """
 
 from __future__ import annotations
 
 import importlib.resources
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, Self, final
 
@@ -20,6 +18,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 __all__ = ["EnablementReport", "PuntEnablement"]
+
+logger = logging.getLogger(__name__)
 
 _GUIDE: Final = importlib.resources.files("punt_kit") / "templates" / "punt-guide.md"
 _SUBTREE: Final = ".punt-labs/punt"
@@ -43,6 +43,7 @@ class PuntEnablement:
     _root: Path
 
     def __new__(cls, root: Path) -> Self:
+        """Bind enablement operations to the repository at ``root``."""
         self = super().__new__(cls)
         self._root = root
         return self
@@ -80,20 +81,75 @@ class PuntEnablement:
         return self._subtree / "enabled"
 
     def enable(self) -> EnablementReport:
-        """Grant the rules first, so a refused settings file changes nothing."""
+        """Enable punt and record the configuration outcome."""
+        return self._toggle(on=True)
+
+    def disable(self) -> EnablementReport:
+        """Disable punt and record the configuration outcome."""
+        return self._toggle(on=False)
+
+    def _toggle(self, *, on: bool) -> EnablementReport:
+        verb = "enable" if on else "disable"
+        try:
+            return self._enable() if on else self._disable()
+        except (OSError, ValueError) as exc:
+            logger.info(
+                "Punt %s failed during configuration inspection: %s",
+                verb,
+                type(exc).__name__,
+            )
+            raise
+
+    def _report(
+        self,
+        verb: str,
+        changes: tuple[str, ...] = (),
+        *,
+        error: str = "",
+        reason: str = "none",
+    ) -> EnablementReport:
+        outcome = "failed" if error else "changed" if changes else "no-op"
+        logger.info(
+            "Punt %s outcome=%s; skill permissions changed=%d, guide updated=%s, "
+            "activation marker changed=%s, guide import changed=%s; reason=%s",
+            verb,
+            outcome,
+            sum(line.startswith("Permission ") for line in changes),
+            any(line.startswith("Deposited ") for line in changes),
+            any(line.startswith(("Wrote ", "Deleted ")) for line in changes),
+            any(line.startswith(("Added ", "Removed ")) for line in changes),
+            reason,
+        )
+        return EnablementReport(changes=changes, error=error)
+
+    def _enable(self) -> EnablementReport:
+        """Grant punt's rules, then deposit the guide, marker and import line.
+
+        The rules go first, so a refused settings file changes nothing.
+        """
         if refusal := self._refusal(self._guide, self._marker):
-            return EnablementReport(error=refusal)
+            return self._report(
+                "enable", error=refusal, reason="unsafe activation target"
+            )
         if self._import.append_would_be_fenced():
-            return EnablementReport(error=UNCLOSED_FENCE)
+            return self._report(
+                "enable", error=UNCLOSED_FENCE, reason="unclosed guide fence"
+            )
         granted = ProjectPermissions(self._root).grant()
         if granted.error:
-            return EnablementReport(error=granted.error)
+            return self._report(
+                "enable",
+                error=granted.error,
+                reason="permission settings rejected or inaccessible",
+            )
         changes = granted.lines("added to")
         try:
             self._deposit(changes)
         except (OSError, ValueError) as exc:
-            return EnablementReport(changes=tuple(changes), error=str(exc))
-        return EnablementReport(changes=tuple(changes))
+            return self._report(
+                "enable", tuple(changes), error=str(exc), reason=type(exc).__name__
+            )
+        return self._report("enable", tuple(changes))
 
     def _deposit(self, changes: list[str]) -> None:
         """Write the guide, marker and import, recording each as it lands."""
@@ -107,17 +163,22 @@ class PuntEnablement:
         if self._import.register():
             changes.append(f"Added {IMPORT_LINE} to CLAUDE.md")
 
-    def disable(self) -> EnablementReport:
-        """Revoke the rules first, so a refused settings file changes nothing.
+    def _disable(self) -> EnablementReport:
+        """Revoke punt's rules, then remove the import line and marker.
 
-        Unlinking a symlinked marker removes only the link, so disable refuses
-        just a symlinked directory, which would redirect the unlink elsewhere.
+        A refused settings file changes nothing. The guide stays in place.
         """
         if refusal := self._refusal():
-            return EnablementReport(error=refusal)
+            return self._report(
+                "disable", error=refusal, reason="unsafe activation target"
+            )
         revoked = ProjectPermissions(self._root).revoke()
         if revoked.error:
-            return EnablementReport(error=revoked.error)
+            return self._report(
+                "disable",
+                error=revoked.error,
+                reason="permission settings rejected or inaccessible",
+            )
         changes = revoked.lines("removed from")
         try:
             if self._import.prune():
@@ -126,5 +187,7 @@ class PuntEnablement:
                 self._marker.unlink()
                 changes.append(f"Deleted {_SUBTREE}/enabled")
         except OSError as exc:
-            return EnablementReport(changes=tuple(changes), error=str(exc))
-        return EnablementReport(changes=tuple(changes))
+            return self._report(
+                "disable", tuple(changes), error=str(exc), reason=type(exc).__name__
+            )
+        return self._report("disable", tuple(changes))

@@ -1,4 +1,4 @@
-"""Tests for the GitHub-side findings of `punt audit`."""
+"""Tests for the GitHub-side findings of `punt repo audit`."""
 
 from __future__ import annotations
 

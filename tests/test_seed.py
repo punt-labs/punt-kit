@@ -1,4 +1,4 @@
-"""Tests for punt seed — marker-based section management."""
+"""Tests for punt repo seed — marker-based section management."""
 
 from __future__ import annotations
 
@@ -303,7 +303,7 @@ class TestMergeJsonPermissions:
 
 
 # ---------------------------------------------------------------------------
-# Integration: run_seed
+# Seed runner integration
 # ---------------------------------------------------------------------------
 
 
@@ -357,12 +357,12 @@ class TestRunSeed:
 
         assert not (tmp_path / "Makefile").exists()
 
-    def test_seed_makefile_skips_non_python(self, tmp_path: Path) -> None:
+    def test_seed_makefile_rejects_non_python(self, tmp_path: Path) -> None:
         (tmp_path / "README.md").write_text("# Test\n")
 
-        changed = run_seed(str(tmp_path), target="makefile")
+        with pytest.raises(SystemExit, match="1"):
+            run_seed(str(tmp_path), target="makefile")
 
-        assert changed == []
         assert not (tmp_path / "Makefile").exists()
 
     def test_seed_settings(self, tmp_path: Path) -> None:
@@ -418,7 +418,7 @@ class TestRunSeed:
     def test_seed_claude_target_removed(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """Regression: the retired claude target fails listing the remaining ones."""
+        """The unsupported claude target fails and lists the available targets."""
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
 
         with pytest.raises(SystemExit, match="1"):

@@ -418,7 +418,9 @@ def _selection_ops(
         _rule(["gh", "pr", "list"], pr_list_fixture),
         *rules,
         FaultRule(match=["git", "checkout"], response=_OK),
-        FaultRule(match=["git", "pull"], response=_OK),
+        FaultRule(match=["git", "fetch", "origin", "main"], response=_OK),
+        FaultRule(match=["git", "merge-base", "--is-ancestor"], response=_OK),
+        FaultRule(match=["git", "merge", "--ff-only", "origin/main"], response=_OK),
     )
 
 
@@ -590,9 +592,7 @@ def test_pr_thread_resolver_no_op_when_nothing_unresolved(tmp_path: Path) -> Non
 
 
 def test_pr_thread_resolver_no_op_when_pr_has_no_threads_at_all(tmp_path: Path) -> None:
-    """A PR with no Copilot/Bugbot review posted yet — ``reviewThreads.nodes``
-    is an empty array rather than absent entirely.
-    """
+    """A PR without automated review has no review-thread nodes."""
     ops = _thread_resolver_ops(
         _rule(["gh", "api", "graphql"], "gh_graphql_pr_threads_empty.json")
     )
@@ -657,7 +657,13 @@ def _merge_env_ops(*merge_rules: FaultRule) -> FaultInjectingOps:
         ),
         *merge_rules,
         FaultRule(match=["git", "checkout"], response=ok, times=None),
-        FaultRule(match=["git", "pull"], response=ok, times=None),
+        FaultRule(match=["git", "fetch", "origin", "main"], response=ok, times=None),
+        FaultRule(
+            match=["git", "merge-base", "--is-ancestor"], response=ok, times=None
+        ),
+        FaultRule(
+            match=["git", "merge", "--ff-only", "origin/main"], response=ok, times=None
+        ),
     )
 
 
@@ -784,11 +790,7 @@ def _all_fixture_names() -> list[str]:
 
 @pytest.mark.parametrize("name", _all_fixture_names())
 def test_every_fixture_carries_a_version_stamp(name: str) -> None:
-    """Every envelope must record what it was recorded/authored against —
-    the input the live ``--check`` drift detector and any future recording
-    pass need to reason about staleness. A fixture with no stamp cannot be
-    told apart from one recorded before the stamp existed at all.
-    """
+    """Every fixture envelope records its CLI version, date, and provenance."""
     meta = load_gh_fixture(name)["_meta"]
 
     assert meta["gh_version"], f"{name}: _meta.gh_version is empty"

@@ -52,10 +52,9 @@ its **enabled marker** at the git root: `.punt-labs/<tool>/enabled`, written
 by `<tool> enable` and deleted by `<tool> disable`
 ([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)).
 The marker supersedes every legacy repo-root sentinel as the presence signal,
-whatever shape it took — [punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)
-is the sole, canonical list of attested shapes; this document does not
-maintain a second copy. `.beads/` has no separate enable step and stays
-as-is — the same section states its exemption.
+whatever shape it took — see [legacy shapes](../docs/repo-layout.md#compatibility-inventory).
+`.beads/` has no separate enable step and stays as-is —
+[punt-labs-dir.md](punt-labs-dir.md) states its exemption.
 
 | Tool | Presence check |
 |------|----------------|
@@ -79,16 +78,7 @@ def has_biff() -> bool:
     return Path(".punt-labs/biff/enabled").exists()
 ```
 
-A legacy sentinel that carries live config (`.vox/config.md`,
-`.lux/config.md`) is **moved**, never deleted: the sentinel migration
-([tool-enable-disable.md § 2.12](tool-enable-disable.md#212-migration),
-[punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)) relocates the settings
-into the tool's own Config-zone destination (not a uniform `config.*` shape:
-vox's is `.punt-labs/vox/vox.md`, lux's is `.punt-labs/lux/config.md`, biff's
-is `.punt-labs/biff/config.yaml`), deletes the empty legacy root path, and
-leaves the config readable as L3 state **at the new path**, never at the old
-one. quarry has no legacy sentinel; its config lives at its Config-zone
-destination ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)).
+Legacy settings preservation and destinations: [PLD-10](punt-labs-dir.md#pld-10-relocation-preserves-meaning-and-content) and [compatibility reference](../docs/repo-layout.md#compatibility-inventory).
 
 #### L1: Discovery
 

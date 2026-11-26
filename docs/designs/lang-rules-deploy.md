@@ -344,7 +344,7 @@ sets. The workspace repo, whose Python lives only under `.bin/`, would declare
 | `ProjectInfo.language` alone | Single-valued and first-match (`python` wins over `go`), so a two-language repo gets one set; and a repo with no root marker, such as the workspace, gets nothing with no way to say otherwise. |
 | Declaration only | Every repo would need a config file before its first `enable`; detection covers the common case with no file. |
 | Union of declaration and detection | A repo could not opt out of a detected set, and the declaration would stop being the exact statement it reads as. |
-| YAML declaration (`config.yaml`, as biff) | punt-kit parses TOML (`tomllib`, `tomli-w`) and has no YAML dependency; punt-labs-dir § 7 allows any `config.*`. |
+| YAML declaration (`config.yaml`, as biff) | punt-kit parses TOML (`tomllib`, `tomli-w`) and has no YAML dependency; punt-labs-dir PLD-7 allows any `config.*`. |
 
 ### 5.2 Ownership, idempotency, and provenance
 
@@ -359,11 +359,11 @@ and are untouched by `enable`.
 |-------------|--------------|
 | A provenance comment inserted into each deployed file at deploy time | Breaks byte-equality, so drift detection needs a transform that strips the line; and the deployed bytes then differ by punt-kit version for identical content. The guide precedent is byte-identical too. |
 | A provenance sentence authored into each canonical file | Makes the canonical source describe its own deployment, which is true but is content, not mechanism; it can be adopted later without changing anything here. |
-| Infer ownership from the `<lang>-` filename prefix | Write provenance cannot be inferred after the fact (punt-labs-dir § 7); a hand-written `python-local.md` would be overwritten. |
+| Infer ownership from the `<lang>-` filename prefix | Use the explicit vendored inventory and its PLD-9 bootstrap rule, not a filename-prefix guess that could include hand-written `python-local.md`. |
 | Refuse to overwrite a locally edited deployed file | The vendored-zone contract is wholesale overwrite; a refusal makes `enable` non-idempotent and leaves the repo on a private fork of a canonical rule with no upgrade path. |
 | Per-repo `exclude` list to drop individual canonical rules | Not in this unit: a uniform set is the point. A repo that disagrees with a rule changes the rule in punt-kit. |
 | `disable` leaves the deployed rules in place, dormant (§ 2.9 read literally) | Not dormant: Claude Code loads `.claude/rules/` with no import-line gate, so the rules keep composing after `disable` while the marker-keyed audit stops checking them. The guide is dormant because its import line is gone; the rules have no such gate (§ 3.2). |
-| First-run collision refusal on every canonical-name file (§ 7 of punt-labs-dir read literally) | The first `enable` would fail in every repo carrying a hand copy, which is the set of repos the design exists to fix; the files are known copies of the canonical set (§ 3.5). |
+| First-run collision refusal on every canonical-name file (PLD-9 of punt-labs-dir) | The bootstrap grandfather treats the new vendored set as the previous set, overwriting existing vendored files with named warnings; config is never grandfathered (§ 3.5). |
 
 ### 5.3 The audit drift check
 
@@ -513,10 +513,10 @@ text, and is phrased for a one-word ruling.
    three-requirement exception. Confirm or course-correct.
 2. **`punt enable` writes outside `.punt-labs/`.** tool-enable-disable.md
    § 2.8 lets `enable` touch exactly one file outside its subtree
-   (`.claude/settings.json`), and punt-labs-dir.md § 1 and § 2 say a tool
+   (`.claude/settings.json`), and punt-labs-dir.md PLD-1 and PLD-2 say a tool
    keeps no per-repo state outside `.punt-labs/`. Claude Code reads rules
    only from `.claude/rules/`, so the deposit must land there. Recommend:
-   amend § 2.8 and punt-labs-dir § 2 so `.claude/rules/` joins
+   amend § 2.8 and the punt-labs-dir scope so `.claude/rules/` joins
    `.claude/settings.json` as a Claude-Code-dictated location a tool may
    write, bounded by the manifest. Confirm or course-correct.
 3. **The verb is the bare `punt enable`, not a `repo-install` /
@@ -539,7 +539,7 @@ text, and is phrased for a one-word ruling.
    deployer, through the same class. Recommend yes, on the precedent that
    `--fix` creates what `init` creates. Confirm or course-correct.
 8. **A locally edited deployed file is overwritten and reported, not
-   refused.** This follows punt-labs-dir § 7's wholesale-overwrite contract
+   refused.** This follows punt-labs-dir PLD-7's wholesale-overwrite contract
    for the vendored zone; it is listed because the bead does not say what
    happens to such a file. Recommend overwrite with a printed line per file.
    Confirm or course-correct.
@@ -551,9 +551,9 @@ text, and is phrased for a one-word ruling.
    § 2.9; the rules go, and the next `enable` re-creates them byte-identical.
    Recommend removal. Confirm or course-correct.
 10. **The first `punt enable` overwrites a canonical-name file punt never
-    deposited.** punt-labs-dir § 7's bootstrap grandfathers only the tool's
-    own prior deposit, and punt never deposited rules, so under § 7 every
-    file already at a canonical name is a collision on the first run. The
+    deposited.** punt-labs-dir PLD-9's first-manifest bootstrap treats the
+    new vendored paths as the previous set and warns on differing overwrites;
+    it never grandfathers config, local data or the marker. The
     fleet's files at those names are hand copies of the canonical set, and
     a refusal would fail the first `enable` in exactly the repos the design
     fixes. Recommend overwrite, with one printed line per file whose bytes
@@ -603,7 +603,7 @@ workspace or child.
 | File | Purpose |
 |------|---------|
 | `standards/tool-enable-disable.md` | § 2.8 and § 2.10 amended per decision 2; § 2.11 gains the rules check; two `../lang-rules/` links rebased. |
-| `standards/punt-labs-dir.md` | § 2 carve-out for `.claude/rules/` per decision 2; one `../lang-rules/` link rebased. |
+| `standards/punt-labs-dir.md` | PLD-2 carve-out for `.claude/rules/` per decision 2; one `../lang-rules/` link rebased. |
 | `standards/python.md`, `go.md`, `c.md`, `swift.md` | The sentence that names `.claude/rules/<lang>-*.md` says the files are deployed by `punt enable` from punt-kit. |
 | `DESIGN.md` | DES-038 from § 6. |
 | `CLAUDE.md` | The repository-layout list and the `demo_exempt` list name `src/punt_kit/lang_rules/` instead of `lang-rules/`. |

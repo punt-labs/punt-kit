@@ -148,14 +148,8 @@ def skips(monkeypatch: pytest.MonkeyPatch) -> SkipRecorder:
 
 @pytest.fixture(autouse=True)
 def isolate_interrupted_event() -> Iterator[None]:
-    """Clear the module-scoped interrupt event around every test.
-
-    ``release._interrupted`` persists for the process; a test that sets it
-    to exercise the interrupt path (directly, or via a mocked phase raising
-    ``KeyboardInterrupt``) would otherwise leak it into every later test —
-    including unrelated ``_wait_for_required_checks`` tests, which now check
-    this same event on every poll iteration and would
-    fail immediately with "Interrupted" on a leaked, already-set event.
+    """Clear the shared interrupt event around every test so check polling does
+    not inherit a stop requested by another test.
     """
     release.interrupt_event().clear()
     yield
@@ -224,8 +218,8 @@ def test_preflight_daemon_mutable_only_dirt_names_stash_command(
 ) -> None:
     """Only a daemon-rewritten settings file dirty → actionable stash hint.
 
-    ``.punt-labs/vox/vox.md`` is the one file standards/punt-labs-dir.md § 7
-    names as continuously rewritten by a running daemon. When it is the
+    ``.punt-labs/vox/vox.md`` is daemon-mutable shared config under
+    standards/punt-labs-dir.md PLD-7. When it is the
     *only* dirty path, the failure names the exact stash-push command and
     the post-release pop step instead of the generic dirty-tree dump.
     """
@@ -824,6 +818,64 @@ def test_version_bump_dry_run_no_changes(tmp_path: Path) -> None:
     assert 'version = "0.1.0"' in content
 
 
+@pytest.mark.usefixtures("isolated_uv")
+@pytest.mark.parametrize("resume", [False, True], ids=["fresh", "resume"])
+def test_version_bump_locks_and_commits_workspace_members(
+    tmp_path: Path, resume: bool
+) -> None:
+    root = _make_release_project(tmp_path)
+    pyproject = root / "pyproject.toml"
+    pyproject.write_text(
+        pyproject.read_text().replace(
+            "[project.scripts]",
+            'dependencies = ["client==0.1.0", "service==0.1.0"]\n\n[project.scripts]',
+        )
+        + '\n[tool.uv.workspace]\nmembers = ["packages/*"]\n'
+        + "[tool.uv.sources]\n"
+        + "client = { workspace = true }\nservice = { workspace = true }\n"
+    )
+    manifests = [pyproject]
+    for name in ("client", "service"):
+        path = root / "packages" / name / "pyproject.toml"
+        path.parent.mkdir(parents=True)
+        path.write_text(f'[project]\nname = "{name}"\nversion = "0.1.0"\n')
+        manifests.append(path)
+    unmanaged = root / "packages" / "unmanaged" / "pyproject.toml"
+    unmanaged.parent.mkdir()
+    unmanaged_text = (
+        '[project]\nname = "unmanaged"\nversion = "0.1.0"\n'
+        '[tool.uv]\nmanaged = false\ndev-dependencies = ["client==0.1.0"]\n'
+    )
+    unmanaged.write_text(unmanaged_text)
+
+    subprocess.run(["uv", "lock", "--offline"], cwd=root, check=True)
+    _commit_all(root, "add workspace")
+    info = detect(root)
+    before = [path.read_bytes() for path in manifests]
+
+    _phase2_version_bump(info, "0.2.0", dry_run=True)
+    assert [path.read_bytes() for path in manifests] == before
+
+    if resume:
+        _git(["checkout", "-b", "release/v0.2.0"], cwd=str(root))
+        for path in manifests[:2]:
+            path.write_text(
+                path.read_text().replace('version = "0.1.0"', 'version = "0.2.0"')
+            )
+
+    _phase2_version_bump(info, "0.2.0", dry_run=False)
+
+    for path in manifests:
+        assert 'version = "0.2.0"' in path.read_text()
+    assert 'dependencies = ["client==0.2.0", "service==0.2.0"]' in pyproject.read_text()
+    assert {str(path.relative_to(root)) for path in manifests} | {"uv.lock"} <= set(
+        _commit_files(root)
+    )
+    assert str(unmanaged.relative_to(root)) not in _commit_files(root)
+    assert unmanaged.read_text() == unmanaged_text
+    subprocess.run(["uv", "lock", "--check", "--offline"], cwd=root, check=True)
+
+
 def _commit_files(root: Path, ref: str = "HEAD") -> list[str]:
     """Return the files changed by a commit."""
     result = subprocess.run(
@@ -961,9 +1013,7 @@ def _rewrite_pins(info: ProjectInfo, version: str, *, dry_run: bool) -> list[_Pa
     return ReleaseProject(info, ops=ops).rewrite_template_pins(version, dry_run=dry_run)
 
 
-# The pin regex only captures ``punt-*`` names (PL-PL-2: every PyPI package in
-# the fleet is punt-prefixed) — the shared fixture's "test-pkg" name predates
-# that convention, so these tests rename it before writing any pins.
+# The pin pattern matches Punt Labs package names.
 _OWN_PKG = "punt-test-pkg"
 
 
@@ -2071,12 +2121,7 @@ def test_run_release_resume_plugin_only_no_version_flag(
 def test_run_release_fresh_plugin_only_no_version_flag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A fresh (non-resume) plugin-only release without --version auto-detects.
-
-    Regresses the fresh-path asymmetry: before this fix, a plugin-only
-    project failed here even though the resume path (once fixed) could
-    already resolve the same version from plugin.json.
-    """
+    """Resolve a plugin-only project's version from plugin.json on a fresh release."""
 
     root = _make_language_none_plugin_project(tmp_path)
 
@@ -2371,14 +2416,7 @@ def test_phase5_tag_initial_push_failure_diagnoses_and_leaves_tag_unpushed(
 def test_phase5_tag_resume_repushes_a_locally_created_but_unpushed_tag(
     tmp_path: Path,
 ) -> None:
-    """A push failure after the local tag is created must retry on resume.
-
-    ``Phase5Tag.run`` creates the tag locally before pushing it. If the push
-    fails, the tag is left at HEAD locally with nothing on the remote. A
-    naive resume that only checks "does the tag exist locally, at HEAD"
-    would treat that as success and never re-push — this is the exact
-    defect the fix closes.
-    """
+    """Retry the push on resume if the tag exists only locally."""
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2445,13 +2483,9 @@ def test_phase5_tag_resume_noops_when_tag_already_reached_remote(
 def test_phase5_tag_resume_fails_loud_when_remote_tag_is_a_stale_different_sha(
     tmp_path: Path,
 ) -> None:
-    """A remote tag's mere presence is not proof it is the right commit.
+    """Reject an existing remote tag that points at the wrong commit.
 
-    Guards the SHA-mismatch gap: an
-    operator recovering from a botched release by recreating the local tag
-    at a corrected commit, while an older, wrong-commit tag of the same
-    name still sits on the remote, must get a loud diagnosed failure — not
-    a silent "already exists" that leaves the wrong commit tagged upstream.
+    A corrected local tag does not overwrite the same name on the remote.
     """
 
     root = tmp_path / "proj"
@@ -3168,16 +3202,8 @@ def _always_merges_sibling(
 def test_propagate_marketplace_matches_by_marketplace_short_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Matches by the plugin's marketplace short name even when the entry's
-    ``source.url`` points somewhere that does not end in the project's repo
-    name — e.g. a renamed or forked upstream URL that predates a rename.
-
-    Regression coverage: marketplace entries key on
-    the plugin's short name (``punt``), not the PyPI distribution name
-    (``punt-kit``) or a URL that happens to match the repo. ``proj``'s
-    manifest name (``test-dev`` in the base fixture) is overridden here so
-    the marketplace short name ("punt") diverges from both the git remote's
-    repo name ("punt-kit") and the entry's (deliberately non-matching) URL.
+    """Match marketplace entries by plugin short name even when neither the
+    source URL nor the PyPI distribution name matches it.
     """
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -4590,13 +4616,7 @@ def test_wait_for_required_checks_falls_back_to_all_checks_when_unprotected(
 def test_wait_for_required_checks_still_requires_only_required_when_protected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Regression guard: branch protection still narrows to isRequired checks.
-
-    The commit never registers a required check (every poll returns the
-    empty-contexts fixture), so the no-checks grace window trips — the fake
-    clock crosses it in a handful of iterations instead of the test
-    sleeping for ``NO_CHECKS_GRACE`` real seconds.
-    """
+    """On a protected branch, expire the grace window if no required checks attach."""
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         if _is_protection_call(cmd):
@@ -4927,14 +4947,10 @@ def test_wait_for_required_checks_late_arriving_checks_still_proceed(
 def test_wait_for_required_checks_stops_promptly_when_interrupted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An interrupt raised while a worker thread is blocked in the poll loop
-    is observed within one iteration, not only after the two-hour deadline.
+    """A polling worker must observe the interrupt within one iteration.
 
-    This is the direct regression guard for the interrupt path: without checking
-    ``interrupted`` inside the loop, a worker thread polling here has no way
-    to learn that the main thread's signal handler fired — only the main
-    thread receives SIGINT — so it would keep polling for up to two hours,
-    blocking ``ThreadPoolExecutor.__exit__``'s join for the same span.
+    SIGINT reaches only the main thread, so the worker must consult the shared
+    flag to stop polling and let the executor finish joining.
     """
 
     check_nodes: list[dict[str, object]] = [
@@ -5136,13 +5152,10 @@ def _make_dirty_sibling(parent: Path, name: str, tracked_files: dict[str, str]) 
 def test_reset_propagation_siblings_restores_dirty_owned_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Sibling on main with only propagation-owned file dirty is reconciled.
+    """Restore a propagation-owned edit on main so a resume can retry the write.
 
-    The scenario: phase 10 wrote projects.json, then the
-    subsequent `git checkout -b propagate/...` timed out. The sibling
-    was left on main with the write on disk, and the guarded retry
-    refused to run. _reset_propagation_siblings must restore that file
-    so --resume-from propagate can retry the same idempotent write.
+    The fixture models a timeout after writing projects.json but before creating
+    the propagation branch.
     """
 
     root = _make_release_project(tmp_path)
@@ -5203,7 +5216,7 @@ def test_reset_propagation_siblings_leaves_unrelated_dirty_untouched(
             "docs/notes.md": original_unrelated,
         },
     )
-    # Operator work — not owned by punt release.
+    # Operator work — not owned by punt release run.
     (sib / "docs" / "notes.md").write_text("operator edited this\n")
 
     def fake_resolve(_root: object, name: str) -> Path | None:
@@ -5426,7 +5439,7 @@ def test_pr_merge_sync_local_main_diagnoses_checkout_failure(
     """A failing `git checkout main` while fast-forwarding local main after
     an already-merged PR must diagnose, not leak a raw CalledProcessError.
 
-    `PrMerger.merge` centralizes this checkout + pull in `_sync_local_main`,
+    `PrMerger.merge` delegates this synchronization to `LocalMainSync`,
     which must not use an unqualified check=True default."""
     base_fake_run, _issued = _fake_gh_run(
         [{"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD}],
@@ -5449,20 +5462,17 @@ def test_pr_merge_sync_local_main_diagnoses_checkout_failure(
         _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
 
 
-def test_pr_merge_sync_local_main_diagnoses_pull_failure(
+def test_pr_merge_sync_local_main_diagnoses_fetch_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A failing `git pull --ff-only` while fast-forwarding local main — a
-    network call, structurally identical in risk to `git fetch origin`
-    (Phase 1) and `GitWorkspace.push` (Phase 5), both already diagnosed —
-    must diagnose too."""
+    """A failing fetch while synchronizing local main must diagnose."""
     base_fake_run, _issued = _fake_gh_run(
         [{"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD}],
     )
     base_run = cast("Callable[..., object]", base_fake_run)
 
     def fake_run(cmd: list[str], **kwargs: object) -> object:
-        if cmd == ["git", "pull", "--ff-only"]:
+        if cmd == ["git", "fetch", "origin", "main"]:
             r = MagicMock()
             r.returncode = 1
             r.stdout = ""
@@ -5473,8 +5483,151 @@ def test_pr_merge_sync_local_main_diagnoses_pull_failure(
     waited: list[int] = []
     _patch_pr_merge_env(monkeypatch, fake_run, waited)
 
-    with pytest.raises(ReleaseError, match="git pull --ff-only failed"):
+    with pytest.raises(ReleaseError, match="git fetch origin main failed"):
         _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "fast-forward",
+        "squash",
+        "reverted",
+        "foreign",
+        "dirty",
+        "hidden-untracked",
+        "backup-failure",
+    ],
+)
+def test_pr_merge_sync_local_main_real_git(
+    tmp_path: Path,
+    scenario: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Only clean, release-owned divergence can be replaced by the squash."""
+    root = tmp_path / "checkout"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    cwd = str(root)
+    base = _git_out(["rev-parse", "HEAD"], cwd=cwd)
+    _git(["checkout", "-b", "release/v1.0.0"], cwd=cwd)
+    (root / "release.txt").write_text("release\n")
+    _git(["add", "release.txt"], cwd=cwd)
+    _git(["commit", "-m", "prepare release"], cwd=cwd)
+    prepared = _git_out(["rev-parse", "HEAD"], cwd=cwd)
+    if scenario == "reverted":
+        _git(["revert", "--no-edit", "HEAD"], cwd=cwd)
+    head = _git_out(["rev-parse", "HEAD"], cwd=cwd)
+    _git(["push", "origin", "release/v1.0.0"], cwd=cwd)
+
+    _git(["checkout", "-b", "merged", base], cwd=cwd)
+    _git(["merge", "--squash", "release/v1.0.0"], cwd=cwd)
+    _git(["commit", "--allow-empty", "-m", "squashed release"], cwd=cwd)
+    merged = _git_out(["rev-parse", "HEAD"], cwd=cwd)
+    assert merged != head
+    _git(["push", "origin", "HEAD:main"], cwd=cwd)
+
+    _git(["checkout", "main"], cwd=cwd)
+    if scenario != "fast-forward":
+        _git(
+            ["merge", "--ff-only", prepared if scenario == "reverted" else head],
+            cwd=cwd,
+        )
+    if scenario == "foreign":
+        _git(["commit", "--allow-empty", "-m", "unrelated work"], cwd=cwd)
+    before = _git_out(["rev-parse", "HEAD"], cwd=cwd)
+    if scenario == "dirty":
+        (root / "release.txt").write_text("uncommitted work\n")
+    if scenario == "hidden-untracked":
+        _git(["config", "status.showUntrackedFiles", "no"], cwd=cwd)
+        (root / "untracked.txt").write_text("uncommitted work\n")
+    issued: list[list[str]] = []
+    monkeypatch.setattr("shutil.which", _fake_which_gh)
+    ops = _fault_ops(
+        real_run=_recording_run(issued, ["git"]),
+        rules=[
+            FaultRule(
+                match=["gh", "pr", "list"],
+                response=CompletedProcessSpec(
+                    stdout=json.dumps(
+                        [{"number": 1, "state": "MERGED", "headRefOid": head}]
+                    )
+                ),
+            ),
+            FaultRule(
+                match=["gh", "pr", "view"],
+                response=CompletedProcessSpec(stdout=merged),
+            ),
+        ],
+    )
+    if scenario == "backup-failure":
+        ops.append_rule(
+            FaultRule(
+                match=["git", "update-ref", "refs/punt-release/main-before-sync"],
+                response=CompletedProcessSpec(returncode=1, stderr="cannot lock ref"),
+            )
+        )
+    merger = PrMerger(ops=ops)
+
+    def sync() -> str:
+        return merger.merge(
+            cwd=root,
+            branch="release/v1.0.0",
+            title="release",
+            wait_for_checks=lambda _gh, _cwd, _number: None,
+            resolve_threads=lambda _gh, _cwd, _number: None,
+        )
+
+    ref = "refs/punt-release/main-before-sync"
+    if scenario in {"foreign", "dirty", "hidden-untracked", "backup-failure"}:
+        error = (
+            "update-ref .* failed"
+            if scenario == "backup-failure"
+            else "Local main diverges"
+        )
+        with pytest.raises(ReleaseError, match=error) as caught:
+            sync()
+        message = str(caught.value)
+        assert before in message
+        assert "--resume-from tag" in message
+        if scenario != "backup-failure":
+            assert (
+                "outside the pushed release head"
+                if scenario == "foreign"
+                else "dirty working tree"
+            ) in message
+        assert _git_out(["rev-parse", "HEAD"], cwd=cwd) == before
+        assert ["git", "reset", "--hard", "origin/main"] not in issued
+        assert (
+            subprocess.run(
+                ["git", "show-ref", "--verify", ref], cwd=cwd, capture_output=True
+            ).returncode
+            != 0
+        )
+        if scenario == "dirty":
+            assert (root / "release.txt").read_text() == "uncommitted work\n"
+        if scenario == "hidden-untracked":
+            assert (root / "untracked.txt").read_text() == "uncommitted work\n"
+    else:
+        assert sync() == merged
+        assert _git_out(["rev-parse", "HEAD"], cwd=cwd) == merged
+        assert (["git", "reset", "--hard", "origin/main"] in issued) == (
+            scenario in {"squash", "reverted"}
+        )
+        if scenario in {"squash", "reverted"}:
+            assert _git_out(["rev-parse", ref], cwd=cwd) == before
+            assert _git_out(["show", f"{ref}:release.txt"], cwd=cwd) == "release"
+            output = capsys.readouterr().out
+            assert ref in output
+            assert before in output
+            assert "git cherry-pick" in output
+            assert f"git reset --hard {ref}" in output
+            assert issued.index(["git", "update-ref", ref, before]) < issued.index(
+                ["git", "reset", "--hard", "origin/main"]
+            )
+        if scenario == "reverted":
+            assert not (root / "release.txt").exists()
 
 
 def test_pr_merge_branch_deletion_404_is_success(
@@ -5636,11 +5789,7 @@ def test_phase8_verify_pypi_install_timeout_mid_retry_loop(
     with pytest.raises(subprocess.TimeoutExpired):
         _run_phase8(info, ops)
 
-    # Both rules were actually consumed — the failure happened on attempt
-    # 2, not attempt 1 (a regression that made the loop stop retrying
-    # after a non-zero exit would leave second_attempt unconsumed and the
-    # TimeoutExpired assertion above would still pass for the wrong
-    # reason).
+    # Both responses must be consumed: the timeout belongs to the second attempt.
     assert first_attempt.consumed == 1
     assert second_attempt.consumed == 1
 
@@ -5694,10 +5843,7 @@ def _merge_env(
     monkeypatch.setattr("shutil.which", _fake_which_gh)
     branch = "release/v1.0.0"
     _init_git_repo(root)
-    # PrMerger.merge's post-merge step runs a bare `git pull --ff-only`
-    # (no explicit remote/branch), which needs main's upstream configured —
-    # unlike Phase5Tag's `ensure_on_main`, which always names `origin main`
-    # explicitly and needs no tracking branch at all.
+    # Publish main so post-merge synchronization has a remote branch to fetch.
     _git(["push", "-u", "origin", "main"], cwd=str(root))
     _git(["checkout", "-b", branch], cwd=str(root))
     ops = _fault_ops(
@@ -5853,11 +5999,7 @@ def test_pr_merge_merge_commit_oid_null_fails_loud(
 def test_pr_merge_retries_transient_block_and_succeeds_before_exhaustion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The squash-merge retry loop must actually retry, not stop at attempt 1.
-
-    Attempts 1 and 2 are blocked by a transient policy check; attempt 3
-    succeeds. Before this test, nothing drove ``merge_attempt`` past 0.
-    """
+    """Retry two transient merge blocks before succeeding on the third attempt."""
 
     def _noop_sleep(_seconds: float) -> None:
         return None
@@ -5900,12 +6042,7 @@ def test_pr_merge_retries_transient_block_and_succeeds_before_exhaustion(
 def test_pr_merge_retry_exhausts_all_six_attempts_then_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A merge that stays transiently blocked for all 6 attempts really fails.
-
-    Regression guard for the exhaustion path: nothing before this test
-    proved the loop gives up after attempt 6 instead of retrying forever
-    or silently succeeding.
-    """
+    """Stop after six transiently blocked attempts and report the failed merge."""
 
     def _noop_sleep(_seconds: float) -> None:
         return None
@@ -6012,10 +6149,10 @@ def test_pr_merge_returns_merge_commit_oid_not_a_later_concurrent_commit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``merge()`` must return the PR's authoritative mergeCommit oid from
-    GitHub, not local main HEAD after ``_sync_local_main``'s pull.
+    GitHub, not local main HEAD after ``LocalMainSync`` synchronizes it.
 
     If another commit lands on main between the squash-merge and that
-    pull — a concurrent release, a hotfix — local HEAD becomes the LATER
+    fetch — a concurrent release, a hotfix — local HEAD becomes the LATER
     commit. The old `git rev-parse --short HEAD` return would have handed
     that back silently instead of the actual merge commit; Phase 5 would
     then tag the wrong commit even with the SHA-threading fix in place,
@@ -6103,12 +6240,7 @@ def test_pr_merge_returns_merge_commit_oid_not_a_later_concurrent_commit(
 def test_merge_in_sibling_secondary_cleanup_failure_reaches_skip_recorder(
     tmp_path: Path,
 ) -> None:
-    """A primary merge failure whose own cleanup also fails must recap both.
-
-    Before this fix, a failed "return sibling to main" checkout inside the
-    ``finally`` block only reached ``ops.info`` — invisible in the
-    end-of-run "Manual action required" recap that ``SkipRecorder`` drives.
-    """
+    """Recap both the primary merge failure and the cleanup checkout failure."""
 
     sibling = tmp_path / "sibling"
     sibling.mkdir()
@@ -6150,10 +6282,7 @@ def test_merge_in_sibling_secondary_cleanup_failure_reaches_skip_recorder(
 def test_merge_in_sibling_solo_cleanup_failure_still_only_infos(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """No SkipRecorder threaded through (Phase 4's own merge) keeps the
-    original info-only behavior — the routing is additive, not a
-    replacement for every caller.
-    """
+    """Without a SkipRecorder, report cleanup checkout failure through info only."""
 
     sibling = tmp_path / "sibling"
     sibling.mkdir()
@@ -6644,13 +6773,10 @@ def test_readme_sha_pin_survives_tag(tmp_path: Path) -> None:
             check=True,
         ).stdout.strip()
 
-    # Step 1: the release PR's own squash-merge (mirrors _phase4_release_pr's
-    # first merge call, for the release branch itself).
+    # Model the release PR's squash merge.
     fake_pr_merge(cwd=root, branch=release_branch, title="chore: release v0.2.0")
 
-    # Step 2: land the README pin — the fix under test. The slug names the
-    # repo _make_release_project wrote into the README ("test-pkg"); the
-    # fixture has no remote to resolve it from.
+    # Land the README pin after the release merge.
     _readme_pin(detect(root)).land(
         "0.2.0",
         dry_run=False,
@@ -7066,13 +7192,9 @@ def test_phase11_verify_skips_when_github_absent(
     capsys: pytest.CaptureFixture[str],
     skips: SkipRecorder,
 ) -> None:
-    """Absent .github sibling → Phase 11 skips its two checks, does not fail.
+    """Skip both .github checks in Phase 11 when the sibling is absent.
 
-    Phase 11 runs after tag/PyPI/GitHub-release have published. A False check on
-    an absent .github sibling would exit non-zero on an already-published release
-    and read identically to a real defect — the exact ambiguity the Phase 10 fix
-    removed. The install-all.sh and profile-SHA checks must skip (not fail) and
-    surface the skip, consistent with Phase 10a and Phase 1d.
+    An unavailable optional sibling is not an invalid published artifact.
     """
     version = "0.1.0"
     root, sibling = _setup_verify_project(tmp_path, version)
@@ -7150,13 +7272,8 @@ def test_phase11_verify_install_all_sha_fails_when_not_ancestor_of_tag(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A resolvable install-all.sh SHA that isn't on the tag's history fails.
-
-    Regression for the silent-rot gap: before this check, a SHA on an
-    abandoned or superseded branch could carry a byte-identical VERSION
-    string and pass a content-only comparison while never having been part
-    of the tagged release — install-all.sh would "work" by pointing at the
-    wrong commit.
+    """Reject a resolvable installer SHA outside the tag's history, even if its
+    VERSION matches the release.
     """
     version = "0.1.0"
     root, sibling = _setup_verify_project(tmp_path, version)
@@ -7236,14 +7353,8 @@ def test_phase11_verify_profile_sha_fails_when_not_ancestor_of_main(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A resolvable profile pin that never merged into .github main fails.
-
-    An empty commit on an unmerged branch carries byte-identical
-    install-all.sh content to the real, merged commit — the pre-existing
-    content-based staleness check alone would have passed this. Only
-    reachability from main catches it: ``git show`` resolves any object
-    still in the local database, merged or not, for as long as it survives
-    garbage collection.
+    """Reject a profile pin that is not reachable from .github main, even when
+    the pinned install-all.sh is byte-identical to the merged version.
     """
     version = "0.1.0"
     root, sibling = _setup_verify_project(tmp_path, version)
@@ -7491,11 +7602,8 @@ def test_phase11_verify_profile_sha_marketplace_chain_missing_sibling(
 def test_phase11_verify_profile_sha_direct_url_path_unaffected(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Regression guard: a CLI/hybrid project (has install.sh) is unaffected.
-
-    Proves ``install_sh.exists()`` — not merely ``info.is_plugin`` — is the
-    discriminator that routes into the marketplace-pin chain, so a hybrid
-    project (is_plugin=True, has install.sh) still takes the direct-URL path.
+    """Use the direct URL for a hybrid project with install.sh; a plugin manifest
+    alone does not select marketplace-chain verification.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
@@ -7602,16 +7710,8 @@ def test_phase11_verify_readme_pin_passes_when_ancestor_of_tag(
 def test_phase11_verify_readme_pin_fails_when_pinned_to_previous_release(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A README SHA pin left at an earlier commit fails, even though that
-    commit is reachable from the tag.
-
-    Regression for the realistic rot this check exists to catch: a
-    previous release's install.sh commit is itself an ancestor of every
-    later tag, so ancestry alone would pass this silently — the pin has
-    to match the CURRENT install.sh commit, not merely be on the tag's
-    history. The stale pin here is the repo's own root commit — reachable
-    from the tag and fully resolvable, but not the commit install_sh_sha()
-    resolves to.
+    """Require the current install.sh commit in README, not just an ancestor of
+    the release tag.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
@@ -7683,14 +7783,9 @@ def test_phase11_verify_readme_pin_catches_stale_pin_among_multiple(
 def test_phase11_verify_readme_pin_rejects_evil_host_with_trusted_string_in_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A URL carrying the trusted host string inside an attacker's PATH
-    must not be classified as trusted.
+    """Reject an untrusted hostname even if the path contains a trusted URL prefix.
 
-    Regression for the authority-bypass gap: a bare substring/regex match
-    on "raw.githubusercontent.com/<owner>/<repo>/<sha>/install.sh" matches
-    that string wherever it appears — including inside the PATH of
-    https://evil.example/raw.githubusercontent.com/<owner>/<repo>/<sha>/
-    install.sh, which curl would download from evil.example, not GitHub.
+    The HTTP request goes to the URL's authority, not a hostname in its path.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
@@ -7724,12 +7819,7 @@ def test_phase11_verify_readme_pin_rejects_evil_host_with_trusted_string_in_path
 def test_phase11_verify_readme_pin_rejects_lookalike_host_suffix(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A hostname that merely ends with the trusted host must be rejected.
-
-    Regression for authority exactness: raw.githubusercontent.com.evil.com
-    is a distinct, attacker-controlled host — hostname comparison must be
-    exact, not endswith.
-    """
+    """Reject a hostname with extra labels after the trusted hostname."""
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
     d = str(root)
@@ -7762,15 +7852,7 @@ def test_phase11_verify_readme_pin_rejects_lookalike_host_suffix(
 def test_phase11_verify_readme_pin_fails_for_uppercase_scheme_stale_sha(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A README pin using an uppercase HTTPS:// scheme is still classified
-    and its currency checked — not silently skipped.
-
-    Regression for the case-sensitive candidate filter: a filter requiring
-    a literal lowercase "https://" would miss "HTTPS://" entirely,
-    producing zero checks (worse than "untrusted") — a stale SHA pinned
-    this way would silently escape detection rather than being classified
-    as trusted-but-stale.
-    """
+    """Check SHA currency for uppercase HTTPS schemes too."""
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
     d = str(root)
@@ -7844,16 +7926,8 @@ def test_phase11_verify_website_sha_fails_for_http_scheme(
 def test_phase11_verify_readme_pin_fails_for_non_sha_downgrade_on_untrusted_host(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A version-tag (non-SHA) install URL on an untrusted host that still
-    references this project fails — not silently ignored just because it
-    doesn't look like a SHA pin.
-
-    Regression: neither the trusted-prefix check nor a bare SHA-shape
-    check alone catches https://evil.example/<owner>/<repo>/v1.2.3/
-    install.sh — it matches neither, so it was invisible to both
-    branches. A SHA-pin -> version-tag downgrade onto any host must still
-    be caught, or it would evade the check entirely by no longer looking
-    like a SHA.
+    """Reject an untrusted install URL for this project even if it replaces the
+    SHA with a version tag.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
@@ -7962,18 +8036,8 @@ def test_phase11_verify_readme_pin_ignores_unrelated_tool_url(
 def test_phase11_verify_website_sha_fails_for_ifs_glued_dual_url_payload(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A zero-whitespace ${IFS}-glued payload chaining a trusted
-    current-SHA curl invocation directly into an evil-host one — no
-    literal whitespace anywhere, since shell ${IFS} substitutes for a
-    space only at execution time, not in the source text — must still
-    classify the evil-host URL as untrusted.
-
-    Regression: a greedy candidate-extraction regex globs both URLs into
-    ONE candidate whose PATH starts with the trusted prefix (from the
-    first URL), so the merged blob was treated as "trusted but not
-    SHA-shaped" (a tolerated version-tag) and the appended
-    https://evil.example/... URL escaped has_untrusted entirely —
-    returning ([], False) instead of failing.
+    """Check both URLs when shell whitespace expansion separates them without
+    literal whitespace. A trusted pin must not hide an untrusted URL.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
@@ -8020,17 +8084,7 @@ def test_phase11_verify_website_sha_fails_for_ifs_glued_dual_url_payload(
 def test_phase11_verify_readme_pin_fails_for_wrong_owner_right_repo(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A raw.githubusercontent.com URL for a DIFFERENT owner but the SAME
-    repo name fails the README check too.
-
-    Regression: the README check required /<owner>/<repo>/ together to
-    count as "references this project", so an attacker's own same-named
-    repo on the genuine raw.githubusercontent.com host — .../attacker-org
-    /proj/<sha>/install.sh — satisfied neither the trusted-prefix check
-    (owner mismatch) nor the reference check (needs both), and was
-    silently ignored, even though Check 8 (website, repo-name-only) would
-    have caught the identical URL.
-    """
+    """Reject a same-named repo owned by someone else, even on the trusted host."""
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
     d = str(root)
@@ -8063,15 +8117,8 @@ def test_phase11_verify_readme_pin_fails_for_wrong_owner_right_repo(
 def test_phase11_verify_readme_pin_fails_for_percent_encoded_install_sh(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A URL whose "install.sh" is partly percent-encoded
-    (``%69nstall.sh``, where ``%69`` decodes to ``i``) on an untrusted
-    host, referencing the project, must still fail the README check.
-
-    Regression: candidate extraction required the literal substring
-    "install.sh" to appear in the RAW text. Percent-encoding even one
-    character breaks that literal match, so the URL produced ZERO
-    candidates and evaded classification entirely — worse than
-    "untrusted", it produced no check at all.
+    """Recognize a partially percent-encoded installer basename before applying
+    the host trust check.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
@@ -8105,14 +8152,8 @@ def test_phase11_verify_readme_pin_fails_for_percent_encoded_install_sh(
 def test_phase11_verify_website_sha_fails_for_percent_encoded_repo_segment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A URL whose repo-name segment is partly percent-encoded
-    (``%70roj``, where ``%70`` decodes to ``p``) on an untrusted host
-    must still fail the website check.
-
-    Regression: the "does this reference our project" test searched the
-    RAW, undecoded path for the plain-text repo name. Percent-encoding
-    one character of the repo segment hides it from that plain-text
-    search, so the URL was silently ignored instead of flagged.
+    """Recognize a partially percent-encoded repo segment before applying the
+    website host trust check.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
@@ -8155,13 +8196,9 @@ def test_phase11_verify_website_sha_fails_for_percent_encoded_repo_segment(
 def test_phase11_verify_readme_pin_fails_for_uppercase_repo_on_untrusted_host(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A case-varied repo name (``PROJ`` vs ``proj``) on an untrusted host
-    must still fail the README check.
+    """Recognize case-varied repo names when rejecting untrusted README URLs.
 
-    Regression: the "does this reference our project" test compared the
-    path against the repo name case-SENSITIVELY, but GitHub itself routes
-    repository URLs case-insensitively — a case-sensitive comparison let
-    ``.../PROJ/...`` evade detection on a host that isn't GitHub at all.
+    GitHub routes repository URLs case-insensitively.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
@@ -8237,16 +8274,8 @@ def test_phase11_verify_website_sha_passes_for_uppercase_repo_on_trusted_host(
 def test_phase11_verify_readme_pin_fails_for_double_encoded_install_sh(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A DOUBLY percent-encoded "install.sh" (``%2569nstall.sh``, where
-    ``%25`` decodes to ``%`` and the resulting ``%69`` decodes to ``i``)
-    on an untrusted host, referencing the project, must still fail the
-    README check.
-
-    Regression: a single ``unquote()`` pass on ``%2569nstall.sh`` yields
-    ``%69nstall.sh`` — still not the literal "install.sh" the boundary
-    search needs — so the token was silently dropped before
-    classification, exactly like the single-encoding evasion, just one
-    layer deeper.
+    """Recognize a twice-percent-encoded installer basename before applying the
+    README host trust check.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
@@ -8280,16 +8309,8 @@ def test_phase11_verify_readme_pin_fails_for_double_encoded_install_sh(
 def test_phase11_verify_website_sha_fails_for_dual_url_behind_encoded_newline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """One installCommand token containing a trusted, current-SHA URL and
-    an untrusted URL separated only by an ENCODED newline (``%0A``, no
-    real whitespace anywhere in the raw text) must record the good SHA
-    AND flag the untrusted one — neither hides the other.
-
-    Regression: after finding the first install.sh boundary, everything
-    after it was sliced off and never re-examined. Percent-decoding
-    ``%0A`` reveals a real newline, and after it a second
-    "https://.../install.sh" referencing the project on an untrusted
-    host — discarding the remainder silently dropped that second URL.
+    """Check both URLs separated by a percent-encoded newline, recording the
+    trusted pin and flagging the untrusted URL.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
@@ -8335,21 +8356,8 @@ def test_phase11_verify_website_sha_fails_for_dual_url_behind_encoded_newline(
 def test_phase11_verify_readme_pin_fails_for_over_encoded_reference(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A token containing BOTH a double-encoded repo segment (resolves to
-    plain text well inside the depth cap) AND an unrelated deep
-    percent-encoding chain (never reaches a fixed point within the cap)
-    must still fail the README check on the repo reference, rather than
-    being silently dropped because the token as a WHOLE never fully
-    decoded.
-
-    Regression: a single ``unquote()`` pass leaves the double-encoded
-    repo segment (``%2570%2572%256f%256a``, two layers for "proj") still
-    percent-encoded and unrecognizable as "proj", so the reference test
-    never matched it and the URL was silently ignored — even though a
-    second decode pass (well short of any depth cap) would have revealed
-    it. The fail-closed fallback for a still-changing decode must still
-    catch the reference once it's legible in the partial decode, even
-    though some OTHER part of the same token never fully resolves.
+    """Reject an untrusted URL whose project segment decodes even when an unrelated
+    part of the same token exceeds the decode cap.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
@@ -8407,18 +8415,7 @@ def _percent_encode_to_depth(text: str, layers: int) -> str:
 def test_phase11_verify_readme_pin_fails_for_repo_encoded_six_layers_deep(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A repo segment percent-encoded ONE layer past the depth cap (6
-    layers, cap is 5) on an untrusted host must still fail the README
-    check, even though the partial decode never resolves the repo name
-    back to literal text.
-
-    Regression: the fail-closed fallback for a still-changing decode
-    only counted a cap-hit token as untrusted when the repo name was
-    ALREADY findable in the partial decode. At 6 layers the partial
-    decode is still percent-encoded gibberish (``reference_pattern``
-    never matches it), so the URL was silently ignored — the cap just
-    moved the boundary, it didn't close the class of evasion.
-    """
+    """Fail closed when decoding hits the cap before the repo name is legible."""
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
     d = str(root)
@@ -8452,11 +8449,7 @@ def test_phase11_verify_readme_pin_fails_for_repo_encoded_six_layers_deep(
 def test_phase11_verify_website_sha_fails_for_repo_encoded_ten_layers_deep(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A repo segment percent-encoded TEN layers deep on an untrusted
-    host must still fail the website check — bumping the depth cap only
-    moves this boundary, it does not close it, so the class of evasion
-    must be closed categorically instead.
-    """
+    """Fail the website check when a repo segment exceeds the decoding cap."""
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
     d = str(root)
@@ -8499,18 +8492,8 @@ def test_phase11_verify_website_sha_fails_for_repo_encoded_ten_layers_deep(
 def test_phase11_verify_readme_pin_fails_for_never_resolving_encoding_chain(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A URL-shaped token whose REPO SEGMENT is itself a ``%25``-self-
-    reference chain that never resolves to a fixed point must fail the
-    README check as untrusted, even though the repo name is nowhere
-    legible in the partial decode — the fail-closed rule for a cap-hit
-    token must not depend on being able to read a project reference out
-    of the endlessly-encoded remainder.
-
-    Regression: a fallback that only flags a cap-hit token when the
-    repo name is ALREADY findable in the partial decode drops this
-    token silently — there is no "proj" anywhere in it to find, encoded
-    or not, since the chain replaces the repo segment entirely rather
-    than merely obscuring it.
+    """Fail closed when the repo segment exceeds the decoding cap, even if no
+    project name is legible at any inspected depth.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
@@ -8599,19 +8582,10 @@ def test_phase11_verify_readme_and_website_pins_pass_for_zero_and_one_layer_enco
 def test_phase11_verify_website_sha_fails_when_installcommand_points_at_wrong_repo(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A website entry ALREADY matched to this project (by id) whose
-    installCommand's install.sh URL points at a DIFFERENT repo — a stale
-    entry left over from a rename, or any other misconfiguration — must
-    fail the website check, even on the trusted raw.githubusercontent.com
-    host, since it carries no ``/<repo_name>/`` segment for a reference
-    filter to catch.
+    """Reject an installer for the wrong repo in a website entry matched by project ID.
 
-    Regression: classify_install_urls() used the same repo-name-only
-    reference filter for both README and website. A wrong-repo URL by
-    definition doesn't reference THIS project's repo name, so the filter
-    ignored it — Phase 11 silently approved a website command that
-    installs the wrong software, even though the caller already knows
-    this installCommand belongs to this project's entry.
+    Every install URL in that entry is relevant, including trusted-host URLs
+    for a different repository.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
@@ -8930,16 +8904,8 @@ def test_recognizer_cannot_be_built_with_an_empty_owner_or_repo(
 def test_phase11_verify_website_sha_fails_when_pinned_to_previous_release(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A website installCommand SHA pinned to an earlier commit fails, even
-    though that commit is reachable from the tag.
-
-    Regression for the realistic rot this check exists to catch: a
-    previous release's install.sh commit is itself an ancestor of every
-    later tag, so ancestry alone would pass this silently — Phase 10 must
-    have actually advanced the pin to the CURRENT install.sh commit, not
-    merely to something on the tag's history. The stale pin here is the
-    repo's own root commit — reachable from the tag and fully resolvable,
-    but not the commit install_sh_sha() resolves to.
+    """Require the current install.sh commit on the website, not just an ancestor
+    of the release tag.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
@@ -9024,14 +8990,7 @@ def test_phase11_verify_website_sha_passes_on_trusted_host(
 def test_phase11_verify_website_sha_fails_on_untrusted_host(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A SHA-shaped install.sh URL on a host other than
-    raw.githubusercontent.com must fail, not pass.
-
-    Regression for the security gap: matching ``/<project>/<sha>/
-    install.sh`` on any host let ``https://evil.example/proj/<current-sha>/
-    install.sh`` get a passing verdict — the pin has to be on the trusted
-    URL, not merely name the right SHA.
-    """
+    """Reject an untrusted website URL even when its installer SHA is current."""
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
     d = str(root)
@@ -9117,15 +9076,7 @@ def test_phase11_verify_website_sha_fails_on_wrong_owner(
 def test_phase11_verify_website_sha_rejects_evil_host_with_trusted_string_in_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A URL carrying the trusted host string inside an attacker's PATH
-    must not be classified as trusted for the website check either.
-
-    Regression for the authority-bypass gap: a bare substring/regex match
-    on "raw.githubusercontent.com/<owner>/<repo>/<sha>/install.sh" matches
-    that string wherever it appears — including inside the PATH of
-    https://evil.example/raw.githubusercontent.com/<owner>/<repo>/<sha>/
-    install.sh, which curl would download from evil.example, not GitHub.
-    """
+    """Reject an untrusted website URL with the trusted hostname only in its path."""
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
     d = str(root)
@@ -9211,16 +9162,7 @@ def test_phase11_verify_website_sha_rejects_lookalike_host_suffix(
 def test_phase11_verify_website_sha_fails_when_untrusted_pin_alongside_trusted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """One trusted current-SHA URL PLUS one untrusted-host SHA-shaped URL
-    in the same installCommand must FAIL — the untrusted one is not
-    skipped just because a trusted pin was also found.
-
-    Regression for the trusted-match short-circuit: when trusted pins were
-    found, the branch that rejects untrusted SHA-shaped URLs never even
-    ran, so an installCommand could carry a legitimate current-SHA pin
-    alongside an injected untrusted one and pass after checking only the
-    trusted half.
-    """
+    """Reject an untrusted website URL even when the command also has a trusted pin."""
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
     d = str(root)
@@ -9265,13 +9207,7 @@ def test_phase11_verify_website_sha_fails_when_untrusted_pin_alongside_trusted(
 def test_phase11_verify_website_sha_catches_stale_second_pin(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Every SHA-pinned install.sh URL in installCommand is checked, not
-    just the first.
-
-    Regression for the completeness gap: ``re.search`` (first match only)
-    would let a second, stale pin in the same installCommand string escape
-    undetected.
-    """
+    """Check every SHA pinned in a website install command, not just the first."""
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
     d = str(root)
@@ -9312,10 +9248,7 @@ def test_phase11_verify_website_sha_catches_stale_second_pin(
 def test_phase11_verify_website_fails_when_version_mismatch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A website entry with a stale version fails even when its SHA is
-    current — the pre-existing version check, exercised alongside the new
-    SHA check to prove one flipping doesn't mask the other.
-    """
+    """Fail the website version check even when its installer SHA is current."""
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
     d = str(root)
@@ -9558,7 +9491,7 @@ def test_release_plugin_swaps_a_plugin_with_no_commands(tmp_path: Path) -> None:
     """A skills-only plugin releases on the name swap alone.
 
     plugins.md allows a plugin that ships only skills, agents, or hooks, and
-    `punt audit` reports a missing commands/ as informational. Aborting the
+    `punt repo audit` reports a missing commands/ as informational. Aborting the
     release preparation here would block such a plugin from ever tagging.
     """
     root = tmp_path / "repo"
@@ -10114,13 +10047,7 @@ def test_phase4_release_pr_swap_script_failure_retries_cleanly(
             merge=_unreachable_merge, land_readme_sha_pin=_unreachable_pin
         )
 
-    # HEAD is untouched (the script's own commit was rejected by the
-    # hook), but the swap itself genuinely happened — plugin.json and the
-    # -dev command removal are staged, uncommitted. This IS the partial
-    # state the module docstring describes and the pre-existing
-    # hand-simulated test (test_phase4_resumes_when_prior_swap_staged_
-    # but_uncommitted) also covers; here it is produced by a real hook
-    # rejection instead of hand-written.
+    # The rejected commit leaves HEAD unchanged but the plugin swap staged.
     assert _git_out(["rev-parse", "HEAD"], cwd=d) == pre_head
     staged_pj = json.loads(_git_out(["show", ":.claude-plugin/plugin.json"], cwd=d))
     assert staged_pj["name"] == "test"
@@ -10153,25 +10080,10 @@ def test_phase4_release_pr_swap_script_failure_retries_cleanly(
 def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, subdir: bool
 ) -> None:
-    """Phase 4 must NOT skip the swap when a prior run failed mid-commit.
+    """Resume a staged but uncommitted plugin swap by consulting HEAD.
 
-    Removing --no-verify let pre-commit hooks abort
-    release-plugin.sh AFTER it mutated the working tree and staged the
-    changes. A working-tree read of plugin.json then reports the swap
-    complete, phase 4 falls through to _pr_merge, and the release tag
-    lands on a commit still carrying the -dev plugin name. The correct
-    predicate is whether the swap is committed AT HEAD.
-
-    This test simulates the failed-hook state by staging a prod-shaped
-    plugin.json without committing, then runs the phase and asserts
-    the swap commit lands. Mutation-checked by reverting the predicate
-    to read the working tree — the assertion that HEAD advanced fails
-    because the buggy code takes the "already in prod state" branch
-    and _pr_merge sees an unchanged HEAD.
-
-    Run against both layouts, because the predicate is a ``git show
-    HEAD:<path>`` and a path that does not exist at HEAD makes the phase
-    raise rather than answer.
+    Phase 4 must commit the swap before merging, or the release tag could
+    still carry the dev plugin name. Check both manifest layouts.
     """
 
     root = _make_release_project(tmp_path, subdir=subdir)
@@ -10499,17 +10411,10 @@ def test_phase9_post_release_cleanup_diagnoses_branch_delete_failure(
 def test_phase9_resumes_when_prior_restore_staged_but_uncommitted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Phase 9 must NOT skip the restore when a prior commit failed on a hook.
+    """Resume a staged but uncommitted dev restore by consulting HEAD.
 
-    Mirror of the phase 4 defect: the restore script stages but does
-    not commit, so if the following ``git commit`` fails on a hook the
-    working tree already shows the dev name with no commit backing it.
-    A working-tree read would then treat the restore as done and fall
-    through to the README-SHA bump, whose ``git commit`` would sweep
-    the still-staged plugin.json into itself under the wrong message —
-    a silent fusion with no restore commit and a mislabelled second
-    commit. Consulting HEAD (name AND version) forces the retry to
-    complete and land a properly-labelled restore commit.
+    Phase 9 must commit the restore separately, or the README pin commit
+    would sweep the staged manifest into its own changes.
     """
 
     root = _make_release_project(tmp_path)
@@ -10901,11 +10806,7 @@ def _never_sleep(_seconds: float) -> None:
 
 
 def test_phase6_fails_on_stale_success_with_no_matching_run() -> None:
-    """A previous release's green run must not be accepted for this tag.
-
-    This is the false green the fix exists for: without the tag filter, the
-    old code took runs[0] — the stale success — and reported CI passed.
-    """
+    """Reject green CI runs for an earlier release while this tag's run is absent."""
     selector = _selector()
 
     with pytest.raises(ReleaseError, match="no release.yml run found"):
@@ -10964,11 +10865,7 @@ def test_phase6_fails_when_no_runs_exist_at_all() -> None:
 
 
 def test_phase6_rejects_a_retagged_run_at_a_different_commit() -> None:
-    """Same tag name, different commit — a delete-and-recreate leftover.
-
-    Real case: v0.12.0 had two push runs at different headShas. Matching on
-    the tag name alone would accept the older one.
-    """
+    """A run for a deleted and recreated tag must also match the commit SHA."""
     selector = _selector()
     leftover = {**MATCHING_RUN, "headSha": "70111ff62936f5cbb64f8c6235bbe106258088a2"}
 
@@ -11436,11 +11333,7 @@ def test_phase6_timeout_explains_itself_instead_of_raising(
 def test_phase6_treats_a_hung_run_list_as_a_failed_lookup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A hung listing must be a failed lookup, not a traceback.
-
-    The watch call was hardened against TimeoutExpired; the listing goes
-    through the same _run and would escape poll the same way.
-    """
+    """Report a timeout listing CI runs as a failed lookup, not a traceback."""
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -11542,12 +11435,7 @@ def test_phase6_hybrid_missing_release_yml_still_fails() -> None:
 def test_phase6_proceeds_normally_when_release_yml_present(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Regression guard: the existing pass-through behavior is untouched.
-
-    ``_make_release_project`` now includes a ``release.yml`` placeholder
-    (added for this guard), so this exercises the unchanged code path after
-    the new guard using the pre-existing ``_run_stub`` dict-dispatch mocks.
-    """
+    """Wait for the release workflow when release.yml is present."""
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -11566,14 +11454,7 @@ def test_phase6_proceeds_normally_when_release_yml_present(
 
 
 def test_run_default_timeout_is_short() -> None:
-    """A hung subprocess must fail loud in seconds, not silently in hours.
-
-    The default was 7200s so gh run watch could inherit it without arguing;
-    every other of the ~90 _run call sites in release.py inherited that same
-    two-hour hang budget silently. Pin the short default here — a regression
-    to a long default puts the whole release one forgotten call site away
-    from a two-hour stall.
-    """
+    """Bound ordinary subprocess calls to seconds, not the extended CI watch budget."""
     sig = inspect.signature(_run)
     default = sig.parameters["timeout"].default
     assert default == timeouts.DEFAULT_RUN
@@ -11882,14 +11763,8 @@ def test_run_release_reports_incomplete_release_on_interrupt(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """An interrupted release exits non-zero naming exactly what
-    was not confirmed landed and the --resume-from command to finish.
-
-    Before this fix, the interrupt path in run_release's ``finally`` printed
-    only "Cleaning up after interrupt..." — no phase, no unlanded list, no
-    --resume-from hint. That silence is what let an operator's Ctrl-C during
-    a Phase 4/10 check-wait hang go unresolved without anyone noticing the
-    release was left mid-flight.
+    """An interrupted release exits nonzero and reports the stopped phase,
+    unconfirmed outcomes, and the exact resume command.
     """
 
     root = _make_release_project(tmp_path)
@@ -11908,7 +11783,7 @@ def test_run_release_reports_incomplete_release_on_interrupt(
     with pytest.raises(SystemExit) as exc_info:
         run_release(str(root), version="0.2.0", dry_run=False, resume_from="ci")
 
-    assert exc_info.value.code == 1
+    assert exc_info.value.code == 130
     normalized = " ".join(capsys.readouterr().out.split())
     assert "Release incomplete" in normalized
     assert "phase 6 (ci)" in normalized
@@ -11958,15 +11833,7 @@ def _graphql_null_rollup_response() -> dict[str, object]:
 def test_wait_for_required_checks_reports_no_checks_yet_not_a_malformed_response(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A null rollup is the normal pre-registration state, not an anomaly.
-
-    This fired on every PR of every release — three propagation PRs plus
-    the release and post-release PRs each logged it — because a null
-    rollup was reaching a subscript and raising TypeError into the
-    malformed-response handler. A warning that appears on every single
-    run is not a warning; it teaches the operator to skim past the ones
-    that matter.
-    """
+    """Treat a null rollup as checks not yet registered, not a malformed response."""
 
     def _noop_sleep(_seconds: float) -> None:
         return None
@@ -12068,14 +11935,8 @@ def test_wait_for_required_checks_still_flags_a_genuinely_malformed_response(
 
 # --- SIGINT during Phase 10 with a worker live inside the check-wait poll ---
 #
-# The DES-029 incident mechanism: a Phase 10 propagator worker sits in
-# RequiredChecksWaiter.wait's poll loop when the operator interrupts. Only the
-# main thread ever receives the signal, so the worker learns about it solely
-# through the `interrupted.is_set()` check at the top of each poll iteration —
-# and until it does, ThreadPoolExecutor.__exit__'s shutdown(wait=True) cannot
-# return. These scenarios hold a worker genuinely mid-poll against a
-# pending-forever GraphQL fake (never released early) and prove the interrupt
-# check is what unblocks the join.
+# Only the main thread receives SIGINT. A Phase 10 polling worker must see
+# the shared interrupt flag before the executor can complete its join.
 
 
 _POLL_BRANCH = "propagate/v0.2.0-proj-public-website"
@@ -12084,18 +11945,10 @@ _POLL_BRANCH = "propagate/v0.2.0-proj-public-website"
 def _interrupted_poll_scenario(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> tuple[Path, FaultRule, FaultRule]:
-    """A project + website sibling whose one live Phase 10 leg blocks mid-poll.
+    """Build a website propagation leg whose required checks stay pending.
 
-    The website propagator reaches ``RequiredChecksWaiter.wait`` against a
-    pending-forever required-checks fake: three unarmed pending polls first
-    (proving the loop is genuinely iterating, not started-and-idle), then a
-    ``times=None`` pending rule armed with ``interrupt_after`` on
-    ``release._interrupted`` — the rule-anchored stand-in for the signal
-    handler's ``_interrupted.set()``, firing while the worker is mid-loop. The
-    fake never leaves the pending state; the only exits from the loop are the
-    interrupt check, or (regression) the deadline — shrunk from two hours to
-    seconds here so a broken interrupt check fails the test instead of
-    hanging it. Returns ``(project_root, warmup_rule, pending_forever_rule)``.
+    The armed rule signals interruption after three warmup polls. The short
+    poll deadline bounds a test failure if the worker misses the signal.
     """
     root = _make_release_project(tmp_path)
     # A python-only project: the marketplace leg no-ops, the .github leg
@@ -12182,18 +12035,7 @@ def test_phase10_interrupt_with_worker_mid_poll_join_returns_promptly(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A worker held mid-poll observes the interrupt and unblocks the join.
-
-    Reproduces the DES-029 mechanism directly: the website propagator worker
-    inside Phase 10's own ThreadPoolExecutor is genuinely mid-iteration in
-    ``RequiredChecksWaiter.wait`` when the interrupt event is set. Phase 10's
-    executor ``__exit__`` can only return once that worker stops polling, and
-    ``_phase10_propagate`` can only finish after that join — so the bounded
-    ``future.result(timeout=...)`` below IS the join-promptness assertion: it
-    passes within seconds only because the worker's ``interrupted.is_set()``
-    check fired, while the fake it polls would have stayed pending for the
-    entire deadline.
-    """
+    """A worker interrupted mid-poll observes the flag and unblocks the join."""
     root, warmup, pending_forever = _interrupted_poll_scenario(tmp_path, monkeypatch)
     info = detect(root)
 
@@ -12223,17 +12065,8 @@ def test_run_release_interrupt_mid_poll_reports_incomplete_release(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """An interrupt observed mid-poll ends in the incomplete-release report.
-
-    The same live-worker scenario, driven through ``run_release`` exactly as
-    the DES-029 incident ran: ``--resume-from propagate`` puts Phase 10 on
-    the main thread with its propagators on pool workers. The
-    KeyboardInterrupt that ``ThreadedStep.collect`` raises once the
-    interrupted worker drains must reach ``run_release``'s cleanup, which
-    resets propagation siblings and prints where the release stopped, what is
-    not confirmed landed, and the exact resume command. The existing
-    reporting test fakes the interrupting phase outright; this one earns the
-    same report from a worker genuinely blocked in the poll loop.
+    """An interrupted Phase 10 worker triggers cleanup and the incomplete-release
+    report, including unconfirmed outcomes and the exact resume command.
     """
     root, warmup, pending_forever = _interrupted_poll_scenario(tmp_path, monkeypatch)
 
@@ -12242,7 +12075,7 @@ def test_run_release_interrupt_mid_poll_reports_incomplete_release(
         run_release(str(root), version="0.2.0", dry_run=False, resume_from="propagate")
     elapsed = time.monotonic() - started
 
-    assert exc_info.value.code == 1
+    assert exc_info.value.code == 130
     # Prompt: the run ends within seconds of the interrupt, not after the
     # (shrunk) poll deadline — the join was released by the interrupt check.
     assert elapsed < 10.0
@@ -12298,10 +12131,7 @@ def test_run_release_interrupt_mid_propagation_restores_owned_file_residue(
 
     monkeypatch.setattr(release, "_reset_propagation_siblings", spying_reset)
 
-    # The interrupt arrives after the owned-file write: the propagator's
-    # dirty-check returns (arming the interrupt event exactly as the signal
-    # handler would set it), then the branch creation dies the way the
-    # v0.14.0 incident's did — a checkout that never returns.
+    # Interrupt after the owned-file write, while the branch checkout is hung.
     status_rule = FaultRule(
         match=["git", "status", "--porcelain", "--", "src/data/projects.json"],
         response=CompletedProcessSpec(stdout=" M src/data/projects.json\n"),
@@ -12317,7 +12147,7 @@ def test_run_release_interrupt_mid_propagation_restores_owned_file_residue(
     with pytest.raises(SystemExit) as exc_info:
         run_release(str(root), version="0.2.0", dry_run=False, resume_from="propagate")
 
-    assert exc_info.value.code == 1
+    assert exc_info.value.code == 130
     # First call: Phase 10's entry auto-recovery, before any residue exists.
     # Second: the interrupt path — fail_on_error=False, residue on disk.
     assert reset_calls == [(True, False), (False, True)]
@@ -13826,8 +13656,7 @@ def test_phase2_bumps_an_annotated_version(tmp_path: Path) -> None:
     assert _init_py(root).read_text() == '__version__: str = "0.2.0"\n'
 
 
-# vox's shape (pkit-bl6s): the metadata read hides behind a helper, so the
-# file never names importlib.metadata.
+# A helper can read package metadata without naming importlib.metadata here.
 _HELPER_COMPUTED_INIT = (
     "from punt_vox.paths import installed_version\n\n"
     "__version__ = installed_version()\n"

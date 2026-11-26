@@ -12,6 +12,7 @@ Each standard lives in its own document under `standards/`.
 
 | Standard | What it covers |
 |----------|---------------|
+| [Standards and Rules](standards/standards.md) | Policy in `standards/`, per-language rules in `lang-rules/<lang>/`, stable clause IDs, rule citations and gates, no status, the `make check-standards` traceability check |
 | [Distribution](standards/distribution.md) | Install paths (marketplace, PyPI, .mcpb), dependency pinning, installation scope, init vs install, uninstall requirements |
 | [CLI](standards/cli.md) | CLI + plugin duality, required subcommands (install, doctor, version, serve), --json flag, shell completion |
 | [Tool Enable/Disable](standards/tool-enable-disable.md) | User-owned CLAUDE.md, the bare `@`-import line, the zoned `.punt-labs/<tool>/` subtree (vendored zone tool-owned), the `enabled` marker, enable/disable verbs, audit checks, sentinel migration |
@@ -19,12 +20,14 @@ Each standard lives in its own document under `standards/`.
 | [Hooks](standards/hooks.md) | Claude Code state machine, three-layer dispatch, shell gates, Python handlers, decision-block and workflow-gate patterns, startup performance, audit checklist |
 | [Permissions](standards/permissions.md) | Allow/prompt/deny tiers, settings.json vs settings.local.json, required allow and deny rules, plugin-distributed permissions |
 | [Filesystem](standards/filesystem.md) | `~/.punt-labs/<tool>/` home layout, reserved subdirectories, per-project activation marker, migration from legacy dot-directories |
-| [Repo-Local State Directory](standards/punt-labs-dir.md) | `<repo>/.punt-labs/<tool>/` tool roots plus the machine-local `.punt-labs/local/` zone, committed except local-convention paths (`local/`, `*.local`, `*.local.*`), live state never tracked (the seal pattern, chunk-based), the canonical gitignore block, subtree zones (vendored/config/local/marker) |
+| [Repo-Local State Directory](standards/punt-labs-dir.md) | PLD policy for shared/local/home placement, canonical paths, ownership and privacy; [Python rules](lang-rules/python/python-layout.md), [Go rules](lang-rules/go/go-layout.md), and [punt repo audit reference](docs/repo-layout.md) |
 | [Integration](standards/integration.md) | Peer-tool discovery tiers L0–L5, presence markers, graceful degradation, integration matrix, bundled integrations |
-| [Logging](standards/logging.md) | Centralized dictConfig, log locations, atomic append, file permissions, content escaping |
+| [Logging](standards/logging.md) | Language-neutral diagnostic policy: private files, multi-process-safe rotation, redaction; [Python rules](lang-rules/python/python-logging.md), [Go rules](lang-rules/go/go-logging.md), [Pharo rules](lang-rules/pharo/pharo-logging.md) |
+| [Telemetry](standards/telemetry.md) | Language-neutral OTel policy: privacy-safe schemas, local SQLite, retention, opt-in export; [Python rules](lang-rules/python/python-logging.md), [Go rules](lang-rules/go/go-logging.md), [Pharo rules](lang-rules/pharo/pharo-logging.md) |
 | [Naming](standards/naming.md) | Repo names, PyPI names, CLI names, slash commands, versioning (semver) |
 | [GitHub](standards/github.md) | Branch protection, CI/CD workflows, review bots (Qodo, Bugbot), required status checks, repo settings |
 | [Workflow](standards/workflow.md) | Issue tracking, workflow tiers, branch discipline, commits, quality gates, code review, session close protocol, design decision logs, cross-project integration |
+| [Testing](standards/testing.md) | Trigger-based test tiers, independently selectable test kinds, coverage, isolation, and candidate and published-artifact checks |
 | [PR and Review](standards/pr-review.md) | Local-first review: the PR as merge gate, review agents, remote reviewers as second opinion |
 | [Git](standards/git.md) | Git mechanics: branch check before commit, no-rewrite of pushed branches, conflict resolution, post-merge cleanup ordering, worktree lifecycle, submodules, mission trailers, stop-and-ask |
 | [Release Process](standards/release-process.md) | The `/punt:auto release` playbook, deterministic phases 1–11, cross-repo propagation |

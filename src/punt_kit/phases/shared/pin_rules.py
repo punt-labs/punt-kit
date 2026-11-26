@@ -1,4 +1,4 @@
-"""The one definition of each SHA pin that release propagation writes and verifies."""
+"""Define the SHA pin formats used by propagation and verification."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ FILENAME_END = r"(?!\w|[.-]\w)"
 
 @final
 class ShaPin:
-    """A commit SHA embedded between a fixed prefix and suffix in some text.
+    """Recognize a commit SHA between a fixed prefix and suffix.
 
     The propagators rewrite the pin and Phase 11 reads it back, and both build
     the pin through the same classmethod (``install_all_entry`` or

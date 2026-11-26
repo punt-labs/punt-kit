@@ -1,4 +1,4 @@
-"""punt release — deterministic release workflow for Punt Labs projects."""
+"""Run the deterministic ``punt release run`` workflow for Punt Labs projects."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from typing import NoReturn, final
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.errors import CommandFailure, ReleaseError
 from punt_kit.phases.phase01_preflight import Phase1Preflight
 from punt_kit.phases.phase02_version_bump import Phase2VersionBump
 from punt_kit.phases.phase03_build import Phase3Build
@@ -33,9 +34,9 @@ from punt_kit.phases.phase11_verify import Phase11Verify
 from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.command_runner import CommandRunner
-from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.gh import RequiredChecksWaiter
 from punt_kit.phases.shared.github_repo import GithubRepo
+from punt_kit.phases.shared.phase_diagnostics import PhaseDiagnostics
 from punt_kit.phases.shared.phase_order import PhaseOrder
 from punt_kit.phases.shared.pipeline import PhaseStep, ReleasePipeline, ThreadedStep
 from punt_kit.phases.shared.pr_merge import PrMerger
@@ -58,10 +59,6 @@ _interrupted = threading.Event()
 # `_phase6_ci_wait` at call time.
 _CI_RUN_POLL_INTERVAL = timeouts.CI_RUN_POLL_INTERVAL
 _CI_RUN_POLL_ATTEMPTS = timeouts.CI_RUN_POLL_ATTEMPTS
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _run(
@@ -175,10 +172,11 @@ def _get_latest_tag_version(root: Path) -> str:
 
 
 def _get_github_repo(root: Path) -> str | None:
-    """GitHub owner/repo of ``origin``; ``None`` when it is not on github.com.
+    """Return ``origin``'s GitHub owner/repo, or ``None`` off github.com.
 
-    ``ValueError`` if the remote is malformed, ``RemoteLookupError`` if git
-    could not be asked.
+    Raises:
+        ValueError: The remote is malformed.
+        RemoteLookupError: Git could not be asked.
     """
     return GithubRepo(root, ops=_ops).slug_text()
 
@@ -189,13 +187,9 @@ def _resolve_pr_threads(gh: str, cwd: str, pr_number: int) -> None:
     PrThreadResolver(repo, ops=_ops).resolve(gh, cwd, pr_number)
 
 
-# ---------------------------------------------------------------------------
-# Phase implementations
-# ---------------------------------------------------------------------------
-
-
+@PhaseDiagnostics(1)
 def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
-    """Phase 1: Pre-flight checks."""
+    """Run phase 1: pre-flight checks."""
     Phase1Preflight(info, dry_run=dry_run, ops=_ops).run()
 
 
@@ -234,18 +228,21 @@ def _pr_merge(
     )
 
 
+@PhaseDiagnostics(2)
 def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 2: Bump version on release branch."""
+    """Run phase 2: bump the version on the release branch."""
     Phase2VersionBump(info, version, dry_run=dry_run, ops=_ops).run()
 
 
+@PhaseDiagnostics(3)
 def _phase3_build(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 3: Build validation."""
+    """Run phase 3: build validation."""
     Phase3Build(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
+@PhaseDiagnostics(4)
 def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> str:
-    """Phase 4: Plugin swap, push branch, create PR, merge.
+    """Run phase 4: plugin swap, push branch, create PR, merge.
 
     Returns the squash-merge commit SHA — the release commit Phase 5 tags.
     """
@@ -254,10 +251,11 @@ def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> str
     )
 
 
+@PhaseDiagnostics(5)
 def _phase5_tag(
     info: ProjectInfo, version: str, *, dry_run: bool, release_sha: str | None
 ) -> None:
-    """Phase 5: Tag the release commit and push the tag.
+    """Run phase 5: tag the release commit and push the tag.
 
     ``release_sha`` is the SHA Phase 4 returned in this same run. It is
     ``None`` only when ``--resume-from tag`` re-enters at this phase
@@ -274,36 +272,30 @@ def _land_readme_sha_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     )
 
 
+@PhaseDiagnostics(6)
 def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 6: Wait for CI."""
+    """Run phase 6: wait for CI."""
     Phase6CiWait(info, version, dry_run=dry_run, ops=_ops).run(
         poll_attempts=_CI_RUN_POLL_ATTEMPTS, poll_interval=_CI_RUN_POLL_INTERVAL
     )
 
 
+@PhaseDiagnostics(7)
 def _phase7_github_release(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 7: Create GitHub release."""
+    """Run phase 7: create the GitHub release."""
     Phase7GithubRelease(info, version, dry_run=dry_run, ops=_ops).run()
 
 
+@PhaseDiagnostics(8)
 def _phase8_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 8: Verify PyPI install."""
+    """Run phase 8: verify the PyPI install."""
     Phase8VerifyPypi(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
-# ---------------------------------------------------------------------------
-# Phase 9: Post-release (dev restore + README SHA bump via PR)
-# ---------------------------------------------------------------------------
-
-
+@PhaseDiagnostics(9)
 def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 9: Dev plugin restore via PR."""
+    """Run phase 9: dev plugin restore via PR."""
     Phase9PostRelease(info, version, dry_run=dry_run, ops=_ops).run(merge=_pr_merge)
-
-
-# ---------------------------------------------------------------------------
-# Sibling repo helpers
-# ---------------------------------------------------------------------------
 
 
 def _resolve_sibling(root: Path, name: str) -> Path | None:
@@ -323,41 +315,37 @@ def _sibling_pr_merge(
 ) -> bool:
     """Create branch, stage files, commit, and merge via PR in a sibling repo.
 
-    Returns True if a PR was created and merged, False if no changes.
+    Returns:
+        True if a PR was created and merged, False if nothing changed.
     """
     return PrMerger(ops=_ops, skips=_skips).merge_in_sibling(
         path, branch, files, message, name, dry_run=dry_run, merge=_pr_merge
     )
 
 
-# ---------------------------------------------------------------------------
-# Phase 10: Local propagation via PRs
-# ---------------------------------------------------------------------------
-
-
 def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """10a. Update project's install.sh SHA in .github/install-all.sh."""
+    """Update the project's install.sh SHA in .github/install-all.sh (10a)."""
     InstallAllPropagator(info, ops=_ops, skips=_skips).run(
         version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
     )
 
 
 def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """10b. Update version and ref in claude-plugins marketplace.json."""
+    """Update version and ref in claude-plugins marketplace.json (10b)."""
     MarketplacePropagator(info, ops=_ops, skips=_skips).run(
         version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
     )
 
 
 def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """10d. Update version in public-website projects.json."""
+    """Update version and install pin in public-website projects.json (10d)."""
     WebsitePropagator(info, ops=_ops, skips=_skips).run(
         version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
     )
 
 
 def _propagate_homebrew(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """10e. Regenerate the project's formula in homebrew-tap."""
+    """Regenerate the project's formula in homebrew-tap (10e)."""
     HomebrewTapPropagator(info, ops=_ops, skips=_skips).run(
         version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
     )
@@ -387,8 +375,9 @@ def _collect_thread_results(
     ThreadedStep(ops=_ops).collect(futures, interrupted=_interrupted)
 
 
+@PhaseDiagnostics(10)
 def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 10: Local cross-repo propagation via PRs."""
+    """Run phase 10: cross-repo propagation via PRs."""
     Phase10Propagate(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run(
         reset_propagation_siblings=_reset_propagation_siblings,
         propagate_install_all=_propagate_install_all,
@@ -397,11 +386,6 @@ def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
         propagate_homebrew=_propagate_homebrew,
         interrupted=_interrupted,
     )
-
-
-# ---------------------------------------------------------------------------
-# Phases 9+10: concurrent post-release + propagation
-# ---------------------------------------------------------------------------
 
 
 def _run_phases_9_10(
@@ -415,7 +399,6 @@ def _run_phases_9_10(
         return
 
     if start <= 9:
-        # Both phases in scope — run concurrently
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = {
                 pool.submit(_phase9_post_release, info, version, dry_run=dry_run): "P9",
@@ -423,21 +406,18 @@ def _run_phases_9_10(
             }
             _collect_thread_results(futures)
     else:
-        # start == 10: only P10
         _phase10_propagate(info, version, dry_run=dry_run)
 
 
-# ---------------------------------------------------------------------------
-# Phase 11: Verify
-# ---------------------------------------------------------------------------
-
-
+@PhaseDiagnostics(11)
 def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 11: Run release verification checks."""
+    """Run phase 11: release verification checks."""
     Phase11Verify(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
-def _print_incomplete_release(current_phase_num: int, resume_phase_num: int) -> None:
+def _print_incomplete_release(
+    current_phase_num: int, resume_phase_num: int
+) -> dict[str, object]:
     """Report exactly what didn't land and how to finish, on any non-success exit.
 
     Called from every stop-early path — an interrupt, a propagation
@@ -450,21 +430,21 @@ def _print_incomplete_release(current_phase_num: int, resume_phase_num: int) -> 
 
     ``current_phase_num`` is where the release stopped; ``resume_phase_num`` is
     where it must be re-entered, which is earlier when a recorded Phase 9/10
-    failure is still outstanding. Phase 0 means nothing had run yet.
+    failure is still outstanding. Phase 0 means nothing had run yet. Return
+    the named resume phase for JSON output when available.
     """
     if current_phase_num == 0:
-        if _interrupted.is_set():
-            console.print(
-                "[red]Release incomplete[/red] — interrupted before any phase ran."
-            )
-            console.print("  Nothing landed; run punt release again.")
-        else:
-            console.print(
-                "[red]Release incomplete[/red] — failed before any phase ran."
-            )
-            console.print("  Fix the error above, then run punt release again.")
+        reason, action = (
+            ("interrupted", "Nothing landed; run")
+            if _interrupted.is_set()
+            else ("failed", "Fix the error above, then run")
+        )
+        console.print(
+            f"[red]Release incomplete[/red] — {reason} before any phase ran.\n"
+            f"  {action} punt release run again."
+        )
         ReleasePipeline.print_manual_actions(_skips)
-        return
+        return {}
     phase_label = PhaseOrder.name_of(current_phase_num)
     resume_label = PhaseOrder.name_of(resume_phase_num)
     unlanded = PhaseOrder.unlanded_from(resume_phase_num)
@@ -480,13 +460,9 @@ def _print_incomplete_release(current_phase_num: int, resume_phase_num: int) -> 
             "above before choosing --resume-from."
         )
     else:
-        console.print(f"  Resume with: punt release --resume-from {resume_label}")
+        console.print(f"  Resume with: punt release run --resume-from {resume_label}")
     ReleasePipeline.print_manual_actions(_skips)
-
-
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
+    return {} if resume_label == "unknown" else {"resume_from": resume_label}
 
 
 def run_release(
@@ -495,12 +471,22 @@ def run_release(
     version: str | None = None,
     dry_run: bool = False,
     resume_from: str | None = None,
-) -> None:
+) -> str:
     """Execute the release workflow.
 
     Phases 1–8 handle the originating repo. Phase 9 does post-release
     cleanup (dev restore, README SHA). Phase 10 propagates to sibling
     repos via PRs. Phase 11 runs final verification checks.
+
+    Args:
+        path: The project root.
+        version: Release version; required for Go resumes at or before tagging.
+            Defaults to the changelog suggestion or, on resume, current version.
+        resume_from: The phase name to start from instead of preflight.
+
+    Raises:
+        SystemExit: Any phase fails, times out, crashes, or is interrupted;
+            the incomplete-release recap is printed first.
     """
     root = Path(path).resolve()
     # Updated inside every `if start <= N:` guard below so the TimeoutExpired
@@ -514,15 +500,13 @@ def run_release(
     # report can recap them whichever exception ends the run.
     propagation_failures: list[tuple[int, str]] = []
 
-    def _resume_phase_num() -> int:
+    def _resume_at() -> int:
         # A later phase can stop the run on top of a recorded Phase 9/10
         # failure. The stop is reported where it happened, but --resume-from
         # points back at the phase that needs re-running (post-release re-enters
         # both P9 and P10): re-running verify alone would never retry the
         # propagation that verify's own checks are reporting on.
-        if propagation_failures:
-            return min(n for n, _ in propagation_failures)
-        return current_phase_num
+        return min((n for n, _ in propagation_failures), default=current_phase_num)
 
     try:
         if not root.is_dir():
@@ -538,6 +522,8 @@ def run_release(
         # run's summary recaps only its own outstanding manual actions.
         _skips.clear()
 
+        Phase1Preflight(info, dry_run=dry_run, ops=_ops).check_dependencies()
+
         if not dry_run:
 
             def _cleanup_handler(signum: int, _frame: object) -> None:
@@ -548,7 +534,6 @@ def run_release(
             signal.signal(signal.SIGINT, _cleanup_handler)
             signal.signal(signal.SIGTERM, _cleanup_handler)
 
-        # Determine start phase
         start = 1
         if resume_from:
             if resume_from not in PhaseOrder.NUMBERS:
@@ -557,36 +542,25 @@ def run_release(
             start = PhaseOrder.NUMBERS[resume_from]
 
         mode = "[bold yellow]DRY RUN[/bold yellow] — " if dry_run else ""
-        resume = f" (resuming from phase {start})" if start > 1 else ""
-        console.print(f"\n{mode}[bold]punt release[/bold] — {root.name}{resume}")
+        console.print(f"\n{mode}punt release run — {root.name} (from phase {start})")
         if info.language == "python" and start > PhaseOrder.NUMBERS["build"]:
             _skips.record(RESUMED_PAST_BUILD_SKIP)
 
         # Phase 1 and version detection run INSIDE this try: its finally is
         # the interrupt path (cleanup, the incomplete-release report, the
-        # exit-1 conversion), and _print_incomplete_release's contract is
+        # exit-130 conversion), and _print_incomplete_release's contract is
         # "called from every stop-early path". With these blocks outside
         # the try, a Ctrl-C during preflight would surface as a raw
         # KeyboardInterrupt with no report and no --resume-from hint.
         try:
-            # Run preflight before version detection (need clean tree for
-            # accurate reads)
+            # Attribute version detection and any interrupt to the entry phase.
+            current_phase_num = start
             if start <= 1:
-                current_phase_num = 1
                 _phase1_preflight(info, dry_run=dry_run)
-            else:
-                # A resumed run still does pre-pipeline work below (version
-                # detection) before any phase step updates the tracker.
-                # Credit that window to the phase the operator asked to
-                # resume from, so an interrupt there reports the exact
-                # --resume-from command they already ran instead of phase 0
-                # ("unknown") with no recovery advice.
-                current_phase_num = start
 
-            # Determine version
             if version is None:
                 if start == 1:
-                    # Fresh release — detect from changelog
+                    # A fresh release suggests its version from the changelog.
                     if (
                         info.pyproject is None
                         and info.language != "go"
@@ -620,7 +594,7 @@ def run_release(
                             "phase, where the new release tag does not "
                             "exist yet, so the latest git tag is still the "
                             "PREVIOUS release. Re-run with an explicit "
-                            "--version X.Y.Z."
+                            "operand: punt release run X.Y.Z."
                         )
                     version = _get_project_version(info)
                     source = "git tags" if info.language == "go" else "pyproject.toml"
@@ -711,9 +685,8 @@ def run_release(
                 _phase11_verify(info, version, dry_run=dry_run)
 
             # The combined P9+P10 step is numbered 10 (not 9) so the
-            # generic `step.number < start` skip only excludes it once
-            # resuming past phase 10 — it must still run (P10 alone) when
-            # start == 10.
+            # generic `step.number < start` skip excludes it only when
+            # resuming past phase 10; resuming at phase 10 still runs P10.
             pipeline = ReleasePipeline(
                 (
                     PhaseStep(2, "bump", _step2),
@@ -747,19 +720,21 @@ def run_release(
                 project=ReleaseProject(info, ops=_ops),
                 skips=_skips,
             )
+            return version
         finally:
             if _interrupted.is_set():
                 ReleasePipeline.print_in_flight(sys.exc_info()[1])
                 _info("Cleaning up after interrupt...")
                 _reset_propagation_siblings(info, fail_on_error=False)
-                _print_incomplete_release(current_phase_num, _resume_phase_num())
-                sys.exit(1)
+                _print_incomplete_release(current_phase_num, _resume_at())
+                sys.exit(130)
     except ReleaseError as exc:
         # Reporter.fail printed its own message; any other ReleaseError (an
         # unreadable file, a failed detection) reaches here unprinted.
         ReleasePipeline.print_unreported(exc)
-        _print_incomplete_release(current_phase_num, _resume_phase_num())
-        raise SystemExit(1) from None
+        raise CommandFailure(
+            str(exc), _print_incomplete_release(current_phase_num, _resume_at())
+        ) from None
     except subprocess.TimeoutExpired as exc:
         # A call site that forgets to opt into a longer budget — or a genuine
         # subprocess wedge — must not exit the release in a traceback. Convert
@@ -767,15 +742,15 @@ def run_release(
         # the operator the exact --resume-from string; a placeholder here is
         # advice that is not actionable, and resuming from the wrong phase
         # skips a gate.
-        ReleasePipeline.print_timeout(exc, current_phase_num, _resume_phase_num())
-        ReleasePipeline.print_manual_actions(_skips)
-        raise SystemExit(1) from None
+        failure = ReleasePipeline.print_timeout(exc, current_phase_num, _resume_at())
+        details = _print_incomplete_release(current_phase_num, _resume_at())
+        raise CommandFailure(failure, details) from None
     except Exception as exc:
         # System boundary: whatever escaped a phase (a missing tool, a parse
         # error in a file a check read, a bug) must not leave the operator with
         # a bare traceback and no idea what landed. Operational errors get one
         # line, bugs a traceback, then the same recap and --resume-from hint
         # every other stop-early path gives.
-        ReleasePipeline.print_crash(exc)
-        _print_incomplete_release(current_phase_num, _resume_phase_num())
-        raise SystemExit(1) from None
+        failure = ReleasePipeline.print_crash(exc)
+        details = _print_incomplete_release(current_phase_num, _resume_at())
+        raise CommandFailure(failure, details) from None

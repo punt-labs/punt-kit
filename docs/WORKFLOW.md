@@ -41,10 +41,10 @@ even when it is Markdown or YAML, because Claude Code executes it. A change
 there is never docs-only and is re-certified after every edit.
 
 A script under `scripts/` is behavior. `release-plugin.sh` and
-`restore-dev-plugin.sh` are run by `punt release` phases 4 and 9;
+`restore-dev-plugin.sh` are run by `punt release run` phases 4 and 9;
 `audit-all.sh` is run by hand (`bash scripts/audit-all.sh [--fix]`) and
 walks `../*/`, the sibling repos. Expected output is written first. Because
-`punt release` performs irreversible steps, a change to either release
+`punt release run` performs irreversible steps, a change to either release
 script is certified by invoking it directly against a scratch checkout
 under `.tmp/`; a change to `audit-all.sh` is certified by running it from
 the repo root without `--fix`, which only reads.
@@ -68,14 +68,15 @@ A file under `.github/workflows/` is behavior and is never exempt. For a
 change there the pre-PR certification is `gstack-qa` running the changed
 job's commands locally (the same steps the YAML runs) and certifying the
 head; the run named below is the CI re-certification — on the PR head for
-`docs.yml`, `lint.yml`, and `test.yml`, after merge for the other two — that the PR
+`docs.yml`, `lint.yml`, and `test.yml`, after merge for the others — that the PR
 description names:
 
 | Workflow | Pre-PR certification | Named run |
 |---|---|---|
 | `docs.yml`, `lint.yml`, `test.yml` (trigger: `pull_request`, and `push` to `main`) | The job's commands run locally | The run on the PR head |
-| `release.yml` (trigger: tag push `v*` or `workflow_dispatch`; publishes to PyPI on any run) | The build job: `uv build`, then `uvx twine check dist/*` | The next tagged release; the leader checks it after merge |
-| `biff-notify.yml` (trigger: `workflow_run` on completed Docs, Lint, Release, Test; its one job runs only when the upstream run failed on a `push` or `workflow_dispatch` event) | The `if:` filter evaluated by hand against a failing and a passing upstream event, and the `biff wall` command line it would run printed with its variables substituted and compared to the expected text — never executed: a wall reaches every teammate's session, whatever its message or duration | Its first `workflow_run` whose upstream failed on a `push` or `workflow_dispatch` event; until one occurs the post-merge run has not happened, and the leader records that |
+| `release.yml` (trigger: tag push `v*` or `workflow_dispatch`; publishes to PyPI on any run) | `make smoke-candidate`: the build job's `uv build` and `uvx twine check dist/*`, then `scripts/smoke-release.sh candidate` on the wheel; the PR's `candidate-smoke` job runs the same target | The next tagged release (its `candidate-smoke` gates PyPI, its `published-smoke` checks the PyPI wheel is byte-identical and runs the same operations); the leader checks it after merge |
+| `nightly.yml` (trigger: `schedule` and `workflow_dispatch`; both jobs run only on upstream `main`) | `make test-nightly` locally, and the `notify` job's `biff wall` command line printed with its variables substituted — never executed | Its first `workflow_dispatch` on `main` after merge (`gh workflow run nightly.yml --ref main`); the alert path is drilled on a throwaway branch with the `main` gate removed and a forced failure, never merged |
+| `biff-notify.yml` (rendered by `biff enable` from biff's template; trigger: `workflow_run` on completed Docs, Lint, Nightly, Ratchet, Release, Test; its one job runs only when the upstream run failed on a `push`) | The `if:` filter evaluated by hand against a failing and a passing upstream event, and the `biff wall` command line it would run printed with its variables substituted and compared to the expected text — never executed: a wall reaches every teammate's session, whatever its message or duration | Its first `workflow_run` whose upstream failed on a `push`; until one occurs the post-merge run has not happened, and the leader records that |
 
 A failure in a named post-merge run is a finding, fixed in a fix PR on the
 spot.
@@ -101,10 +102,17 @@ worker or evaluator.
 ## The standing worker contract
 
 Every implementation mission in punt-kit carries this block verbatim in its
-contract. punt-kit has no ratchet gate (`make check` runs ruff, mypy,
-pyright, shellcheck, and pytest; there is no `check-oo`, baseline file, or
-update target), so the ratchet clauses of the standard's reference block
-name nothing here and the block reads:
+contract. `make check` runs ruff, mypy, pyright, shellcheck, pytest, and the
+four gates from the pinned dev package
+[`punt-oo-ratchet`](https://pypi.org/project/punt-oo-ratchet/) on
+`src/punt_kit/`: OO must-improve, coupling/cohesion regression-only,
+suppression-count regression-only, and the design gate against the merge base
+with `origin/main` (override `DESIGN_BASE`). `make report` shows per-file OO metrics.
+After passing, use `make update-oo`, `make update-coupling`, and
+`make update-suppressions`; stage changed root baselines and audit logs with
+the source. The [adoption rule](../lang-rules/python/python-oo-adoption.md)
+defines seeding and the PR merge-base / main post-merge CI wiring.
+The standing block reads:
 
 > **Goal.** Good design, stated as responsibilities: which unit (type,
 > module, or package) owns what, who depends on what.
@@ -113,6 +121,11 @@ name nothing here and the block reads:
 > number without improving responsibilities — a grab-bag unit, a bundle of
 > collaborators handed out for callers to reach through, a second facade
 > forwarding to the first — is rejected even when the gate goes green.
+>
+> **Ratchets.** No OO metric regresses on a touched file and at least one
+> improves. Coupling/cohesion and suppression counts must not regress.
+> Commit updated baselines and audit logs with the source; never hand-edit
+> them or rebaseline existing debt to make a gate pass.
 >
 > **Forbidden.** Restoring any file from git (`git show REV:path > path`,
 > `checkout --`, `restore`, `reset`, `stash`), `rm`, `clean`, or switching
@@ -141,7 +154,7 @@ implementation mission, and the operator ratifies the design:
   "Ethos & Delegation").
 - A change to the plugin's layout: what `plugin/` contains, how a command
   resolves `${CLAUDE_PLUGIN_ROOT}`, or the dev/prod command pairing.
-- A change to the `punt release` phase sequence or its `--resume-from`
+- A change to the `punt release run` phase sequence or its `--resume-from`
   contract (also a formal class, below).
 
 ## Formal classes
@@ -157,7 +170,7 @@ or code it describes.
    `standards/pr-review-model.tex` and
    `standards/pr-review-model-bugbot.tex`; the check commands and cardinality
    bounds are in each file's header.
-2. **The `punt release` phase sequence.** `src/punt_kit/release.py`, phases
+2. **The `punt release run` phase sequence.** `src/punt_kit/release.py`, phases
    1 through 11, and `--resume-from`. It is a formal class because it is a
    sequential state machine with irreversible transitions (tag push, PyPI
    publish, sibling-repo PRs) and re-entry at any phase, so a wrong
@@ -173,8 +186,8 @@ The sort is the standard's. What each rank means here:
    package; a release-pipeline credential (`release.yml` must stay on OIDC
    trusted publishing, no `PYPI_TOKEN`); a stale or wrong `install.sh` SHA
    pin that sibling repos and the org profile consume.
-2. **Broken user journeys.** A `punt release` phase that fails or leaves a
-   sibling repo on a propagation branch; `punt init`, `punt audit`, or
+2. **Broken user journeys.** A `punt release run` phase that fails or leaves a
+   sibling repo on a propagation branch; `punt repo init`, `punt repo audit`, or
    `punt reconcile` failing against a sibling repo; a plugin command that
    fails after `/plugin update` from the marketplace; a standard that
    contradicts what the fleet runs (see the fleet reality check in

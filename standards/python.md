@@ -1,6 +1,6 @@
 # Python Standards
 
-**Updated:** 2026-08-14
+**Updated:** 2026-11-24
 
 Standards for all Punt Labs Python projects. This document is the canonical reference — individual project CLAUDE.md files should reference it, not duplicate it.
 
@@ -239,9 +239,20 @@ Every Punt Labs Python project adopts the OO ratchet tooling. The ratchet is the
 mechanism that holds Python to the object-oriented stance, and no Python project
 is exempt from it.
 
-The ratchet tooling, currently in lux, moves to punt-kit, so any Python project
-can install it from one shared source rather than copying it out of lux. That
-promotion is a required follow-on to adopting this standard.
+Depend on the dev package
+[`punt-oo-ratchet`](https://pypi.org/project/punt-oo-ratchet/), pinned to an
+exact reviewed release (`==X.Y.Z`) in `pyproject.toml` and locked in `uv.lock`. Do not embed copies of
+the tooling under `tools/`. The package provides `oo-ratchet oo`,
+`oo-ratchet coupling`, and `oo-ratchet suppressions`; all three checks belong
+in `make check`. Coupling/cohesion and suppression counts are regression-only
+gates, alongside the OO must-improve gate.
+
+The [adoption rule](../lang-rules/python/python-oo-adoption.md) specifies
+dependency installation, Makefile targets, initial baseline seeding, and CI
+wiring. PRs compare against the merge base with `--require-base`; main pushes
+use the post-merge tripwire. Only release and post-release branches waive
+the OO improvement requirement, never regression checks. Baselines and audit
+logs remain repo-owned; implementation lives in the external package.
 
 ## Toolchain
 
@@ -249,6 +260,8 @@ promotion is a required follow-on to adopting this standard.
 |------|---------|---------|
 | **uv** | Package manager, virtualenv, task runner | `uv sync`, `uv run`, `uv build`, `uv publish` |
 | **ruff** | Linting and formatting | `uv run ruff check .`, `uv run ruff format .` |
+| **pydoclint** | Check documented parameter names against signatures | Via `make lint` |
+| **MkDocs + mkdocstrings** | Generate the public Python API reference | `uv run mkdocs build --strict` |
 | **mypy** | Type checking (strict) | `uv run mypy src/ tests/` |
 | **pyright** | Type checking (strict, second opinion) | `uv run pyright src/ tests/` |
 | **pytest** | Testing | `uv run pytest` |
@@ -335,6 +348,101 @@ uvx twine check dist/*
 - All imports at top of file, grouped per PEP 8 (stdlib, third-party, local).
 - No inline imports.
 
+## Docstrings and API Reference
+
+Follow the [Python comments and docstrings rule](../lang-rules/python/python-comments.md).
+Public modules, packages, classes, functions, and methods in `src/` need
+Google-style docstrings with imperative summaries. Private names and tests
+do not. Describe the caller-visible contract, not the implementation or its
+history. Keep types in annotations, explain only non-obvious parameters and
+results, and list all caller-facing exceptions. The supported surface includes
+public re-exports, even from private modules, and every registered MCP tool.
+MCP tools need a fuller runtime docstring even when their names are private.
+
+### Linting
+
+When adopting this standard, run these checks in `make lint` and CI.
+Keep pydoclint in the locked uv development dependencies. The
+[enforcement matrix](../lang-rules/python/python-tooling-enforcement.md)
+separates lint checks from review.
+
+- Run Ruff's `D` rules in a separate `src/` invocation, not in the usual
+  whole-repo Ruff check. Set `convention = "google"` under
+  `[tool.ruff.lint.pydocstyle]`. Select `D401` explicitly: the Google convention
+  alone does not enforce imperative mood. Ignore `D417`, which requires
+  documenting all parameters whenever an `Args:` section exists. Ignore
+  `D105` and `D107` so lint does not require a docstring on every special
+  method or initializer; review the ones that are part of the public API.
+  Ruff's visibility rules are an approximation; separately check supported
+  symbols Ruff cannot see, such as re-exports from private modules. Use
+  scoped missing-docstring exclusions for modules that are explicitly
+  internal despite their names.
+- Run `uv run ruff check --select ERA001 .` to flag commented-out Python code.
+  Inspect findings and remove confirmed dead code; do not auto-delete comments.
+  Rephrase false positives where possible without losing meaning.
+- Provide a `make check-docstrings` target for the pydoclint argument gate
+  below. The plain pydoclint exit status is not the gate: the standard
+  permits both partial `Args:` and omitted return descriptions.
+
+```toml
+[tool.pydoclint]
+style = "google"
+arg-type-hints-in-docstring = false
+skip-checking-short-docstrings = false
+allow-init-docstring = true
+check-style-mismatch = true
+```
+
+Use pydoclint's reported findings (from its CLI or AST visitor). Fail on tool
+errors, `DOC001`/`DOC002` parse errors, `DOC003` style mismatches,
+`DOC102` (surplus entries), `DOC111`
+(repeated argument types), and `DOC103` when it reports arguments in the
+docstring that are not in the function signature. Do not fail on `DOC101`
+or a `DOC103` that only reports undocumented parameters. Do not ignore
+`DOC103` wholesale: a renamed parameter can leave a stale docstring entry
+without changing the entry count. Put constructor argument documentation on
+the class unless `__init__` has its own docstring; when both docstrings exist,
+put constructor arguments in `__init__` and fail on `DOC304`. For classes
+that implement construction in `__new__` instead, document its arguments
+on `__new__` and include that member in the generated class reference.
+
+Test the gate with partial and omitted sections, stale argument names
+(including in constructors), non-Google sections, parse errors, and tool
+failures. If filtering CLI output, fail on unrecognized output or an
+unexpected exit status rather than treating it as an empty result.
+
+Review still checks whether a comment is redundant or stale and whether a
+docstring captures the API contract, including exceptions that static
+analysis cannot infer. Add a `make check-comments` target that fails on
+unambiguous tracker references in comments and docstrings using the
+repository's known tracker URL and issue key patterns. Do not scan arbitrary
+string literals or treat every issue-like token as a reference.
+
+### Generated API reference
+
+Projects that expose a public Python API build its reference with MkDocs
+and `mkdocstrings[python]`. Lock the build dependencies in a uv dependency
+group, point the Python handler at `src/`, and set the parser to Google style:
+
+```yaml
+plugins:
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_signature_annotations: true
+```
+
+In reference pages, use `::: package.symbol` directives for supported modules
+and objects. Select public members explicitly where needed; do not publish
+internal names or copy signatures and API descriptions into Markdown.
+Keep narrative guides separate. Require `uv run mkdocs build --strict` in
+CI, with the docs dependencies installed. Check that the expected public
+symbols appear in the built reference: a strict build can succeed with a
+missing directive.
+
 ## Types
 
 - Full type annotations on every function signature and return type.
@@ -364,8 +472,12 @@ uvx twine check dist/*
 ## Logging
 
 - `logger = logging.getLogger(__name__)` per module.
-- `logging.basicConfig()` configured once in CLI and server entry points.
-- MCP server logs to stderr only (stdout reserved for stdio transport).
+- Follow [Python logging rules](../lang-rules/python/python-logging.md):
+  entry points call `configure_logging` for
+  `dictConfig` setup and a durable, private file sink; never `basicConfig`.
+- Reserve stdout for stdio transport in MCP servers. stderr is optional,
+  never the only diagnostic sink. Hooks and detached processes configure too.
+- Usage capture follows [Telemetry](telemetry.md), separate from logging.
 
 ## Project Layout
 
@@ -468,25 +580,30 @@ PyPI has no namespace mechanism (unlike npm's `@org/pkg`), so all packages use t
 | `punt-labs/langlearn-types` | `punt-langlearn-types` | — | `langlearn_types` |
 | `punt-labs/punt-kit` | `punt-kit` | `punt` | `punt_kit` |
 
-The full naming convention is in [CLI Standards](cli.md#naming-and-distribution).
+The full naming convention is in [Naming](naming.md).
 
 ## Testing
 
 - Every module ships with tests. Untested code is unfinished code.
 - Tests mirror source structure: `test_cli.py`, `test_server.py`, etc.
-- If a test fails, fix it. Do not skip, ignore, or work around it.
+- Fix failures; handle flaky cases under [Testing](testing.md#tst-9-make-quarantines-temporary-and-visible).
 - Integration tests requiring external services are marked with pytest markers (e.g., `@pytest.mark.integration`).
 
 ### Testing Pyramid
 
-| Tier | What It Tests | Speed |
-|------|---------------|-------|
-| **1. Unit** | Tool logic, data models, pure functions | Fast (~1s) |
-| **2. Integration** | MCP protocol, cross-component state | Medium (~2-5s) |
-| **3. Subprocess/E2E** | Wire protocol, CLI args, process lifecycle | Slow (~5-10s) |
-| **4. SDK** | End-to-end with Claude (optional, costs money) | Very slow (~30s) |
+For current trigger names, CI placement and release test evidence, see
+[Testing](testing.md). The older pyramid below describes test scope.
 
-Default `pytest` runs tiers 1-2 only. Higher tiers are opt-in via markers.
+| Test scope | What It Tests | Speed |
+|------------|---------------|-------|
+| **Unit** | Tool logic, data models, pure functions | Fast (~1s) |
+| **Integration** | MCP protocol, cross-component state | Medium (~2-5s) |
+| **Subprocess/E2E** | Wire protocol, CLI args, process lifecycle | Slow (~5-10s) |
+| **SDK** | End-to-end with Claude (optional, costs money) | Very slow (~30s) |
+
+Select and document the credential-free default suite and required boundary
+checks under [Testing](testing.md) and the
+[Python testing rules](../lang-rules/python/python-testing.md).
 
 ### Humble Object Testing
 
@@ -502,10 +619,9 @@ See [Humble Object Commands](../patterns/humble-object-commands.md) for the full
 
 ### Surface Parity Testing
 
-[cli.md](cli.md#core-principle) states the principle — every MCP tool has a
-corresponding CLI command, and all client surfaces are thin adapters over the
-same engine — but the principle only holds if a test actually checks it. A
-parity test drives two (or more) surfaces against one shared fixture and
+[Architecture](architecture.md#the-projection-model-canonical) defines the
+projection model. A parity test drives equivalent capabilities on two or
+more surfaces against one shared fixture and
 asserts their answers agree field for field, not just that both happen to
 return `200`/exit `0`.
 
@@ -524,18 +640,25 @@ The pattern:
    from the same underlying state, never configured independently — two
    separately-authored fakes can drift apart and hide exactly the
    divergence this test exists to catch.
-2. **Assert the verb/tool-name sets match first.** A cheap, high-value
-   check, using only public APIs. Derive CLI verbs the way Typer does —
-   `c.name` is `None` for the plain `@app.command()` form, so fall back to
-   the callback name:
+2. **Assert the projected capability sets match first.** This example
+   assumes a flat command tree whose product verbs already match MCP tool
+   names. Derive CLI verbs the way Typer does: `c.name` is `None` for
+   plain `@app.command()`, so fall back to the callback name. From the
+   product's command map, exclude CLI-only installation and process
+   supervision per [CLI-9](cli.md#cli-9-project-product-capabilities-without-exposing-administration),
+   [CLI-1](cli.md#cli-1-expose-one-canonical-version-command)'s `version`,
+   and any other documented non-product paths or considered omissions:
 
    ```python
    async def test_verb_sets_match() -> None:
+       # CLI-only paths for this example's command map.
+       cli_only = {"install", "uninstall", "start", "stop", "restart", "version"}
        cli_verbs = {
            c.name or c.callback.__name__.replace("_", "-") for c in app.registered_commands
        }
        mcp_verbs = {tool.name for tool in await mcp.list_tools()}
-       assert cli_verbs == mcp_verbs
+       assert cli_only.isdisjoint(mcp_verbs)
+       assert cli_verbs - cli_only == mcp_verbs
    ```
 
    `FastMCP.list_tools()` is the framework's public tool-listing API — do
@@ -543,11 +666,9 @@ The pattern:
    coroutine: `await` it from an async test (pytest-asyncio/anyio); in a
    sync test with no running event loop, `asyncio.run(mcp.list_tools())`
    works instead — never inside an async test, where `asyncio.run()`
-   raises `RuntimeError`. When one MCP
-   tool multiplexes subcommands (vox's `mic:music`), compare the CLI verb
-   set against the tool's declared subcommand set (the `Literal`/enum type
-   that defines it) instead of against tool names. Either way: a verb on one
-   surface and not the other is a hole in the contract — catch it before
+   raises `RuntimeError`. For grouped commands or an MCP tool that
+   multiplexes subcommands, map paths and declared subcommands to the same
+   capability names before comparing. Catch unexplained differences before
    comparing any payload.
 3. **Compare the parsed JSON payload, field for field**, not the surface's
    prose. A CLI's plain output and an MCP tool's stylized response (vox's
@@ -592,15 +713,17 @@ CLI-only tools (like `punt-kit`) install via `pip install` or `uv tool install` 
 Releases are automated via `release.yml`. A tag push (`v*`) triggers the full pipeline:
 
 ```text
-build → testpypi → test-install → pypi
+build → testpypi → test-install → pypi → published smoke
 ```
 
 1. **build** — `uv build` + `uvx twine check dist/*`, uploads artifact
 2. **testpypi** — Publishes to TestPyPI via trusted publishing (OIDC)
-3. **test-install** — Installs the package from TestPyPI and verifies the CLI entry point
+3. **test-install** — Installs and exercises the exact candidate as required by [TST-7](testing.md#tst-7-prove-the-installed-candidate-before-promotion)
 4. **pypi** — Publishes to production PyPI via trusted publishing (OIDC)
+5. **published smoke** — Installs the exact published version from production PyPI in a clean environment and asserts its identity and a representative real operation, as required by [TST-8](testing.md#tst-8-verify-the-published-distribution)
 
-TestPyPI failure blocks PyPI publish. This catches packaging issues before they reach production.
+TestPyPI or candidate test failure blocks PyPI publication. A failed published
+smoke fails release verification and alerts the release owner.
 
 ### Developer steps
 
@@ -609,9 +732,8 @@ TestPyPI failure blocks PyPI publish. This catches packaging issues before they 
 3. Run all quality gates
 4. Commit: `chore: release vX.Y.Z`
 5. Tag and push: `git tag vX.Y.Z && git push origin main vX.Y.Z`
-6. CI handles build, TestPyPI, install verification, and PyPI upload
+6. CI builds and tests the candidate, publishes it to PyPI only after the candidate tests pass, and runs the published smoke
 7. Create GitHub release: `gh release create vX.Y.Z --title "vX.Y.Z" --notes-file -`
-8. Verify: `uv tool install --upgrade punt-<name> && <name> --version`
 
 ### Trusted publishing setup (one-time per package)
 

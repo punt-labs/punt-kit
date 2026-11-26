@@ -1,4 +1,4 @@
-"""The numbered release phases and the names ``--resume-from`` accepts for them."""
+"""Map numbered release phases to ``--resume-from`` names."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import ClassVar, final
 
 @final
 class PhaseOrder:
-    """The canonical phase order: the one source of the number-to-name mapping.
+    """Define the order and names of release phases.
 
     Index + 1 is the phase number; the name at that index is the string the
     operator passes to ``--resume-from``. Every lookup derives from ``ORDER``
@@ -39,7 +39,7 @@ class PhaseOrder:
 
     @classmethod
     def name_of(cls, number: int) -> str:
-        """The ``--resume-from`` name for a phase number, or ``"unknown"``.
+        """Return a phase's ``--resume-from`` name, or ``unknown``.
 
         Only in-range numbers map to a name; 0 (nothing running yet) and
         anything outside 1..len(ORDER) fall through to ``"unknown"`` so the

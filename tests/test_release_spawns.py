@@ -6,7 +6,7 @@ That place is ``CommandRunner.run`` in ``phases/shared/command_runner.py``;
 The scan is static: it watches the ``subprocess``, ``os``, ``pty``, ``asyncio``,
 ``multiprocessing`` and ``concurrent.futures`` process APIs and string-based
 imports of them, in the modules reachable by absolute imports from
-``release.py`` and from the ``release`` command's entry in ``__main__.py``. A
+``release.py`` and the ``release run`` command's adapter in ``cli_release.py``. A
 process started by a program those modules run, or by code the scan cannot
 resolve, is outside it; the hook floor ``CommandRunner.run`` applies covers
 everything that reaches it.
@@ -22,6 +22,7 @@ import punt_kit
 from tests.harness.spawn_scan import SpawnScan
 
 _PACKAGE = Path(punt_kit.__file__).parent
+_RELEASE_CLI = _PACKAGE / "cli_release.py"
 
 
 @pytest.mark.parametrize(
@@ -173,25 +174,18 @@ def test_the_scan_follows_imports_inside_the_package() -> None:
 
 
 def _release_modules() -> list[Path]:
-    """Every module on the release path: the CLI's ``release`` command and below."""
-    cli = SpawnScan.reachable_from(_PACKAGE / "__main__.py", entry_point="release")
+    """Every module on the release path: the CLI's release adapter and below."""
+    cli = SpawnScan.reachable_from(_RELEASE_CLI)
     return sorted({*cli, *SpawnScan.reachable_from(_PACKAGE / "release.py")})
 
 
 def test_the_release_command_reaches_release_py() -> None:
-    assert _PACKAGE / "release.py" in SpawnScan.reachable_from(
-        _PACKAGE / "__main__.py", entry_point="release"
-    )
+    assert _PACKAGE / "release.py" in SpawnScan.reachable_from(_RELEASE_CLI)
 
 
 def test_the_release_command_does_not_pull_in_other_commands() -> None:
-    reached = {
-        p.name
-        for p in SpawnScan.reachable_from(
-            _PACKAGE / "__main__.py", entry_point="release"
-        )
-    }
-    assert "audit.py" not in reached
+    reached = {p.name for p in SpawnScan.reachable_from(_RELEASE_CLI)}
+    assert {"audit.py", "init.py", "install.py", "pii_checkout.py"}.isdisjoint(reached)
 
 
 def test_only_run_spawns_a_release_process() -> None:

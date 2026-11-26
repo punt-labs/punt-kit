@@ -1,4 +1,4 @@
-"""Deciding which marketplace or website entry belongs to a project, by full slug."""
+"""Identify marketplace and website entries belonging to a project."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class EntryMatcher:
-    """Matches entries named for this project, or sourced from its own owner/repo.
+    """Match entries by project identity or source repository.
 
     A source URL claims the project only when it parses to ``owner/repo`` for
     this project's own owner and repository: a same-named repository under
@@ -35,7 +35,7 @@ class EntryMatcher:
         # marketplace short name, only its repository name.
         marketplace_name: str | None,
     ) -> Self:
-        """The matcher for a project's marketplace entry.
+        """Build the matcher for a project's marketplace entry.
 
         Built from the repository (the origin slug) and the plugin's
         marketplace short name, not the PyPI distribution name: entries key
@@ -47,11 +47,11 @@ class EntryMatcher:
 
     @classmethod
     def for_website(cls, slug: RepoSlug) -> Self:
-        """The matcher for a project's website entry: its id is the repo name."""
+        """Match website entries by repo name or GitHub URL."""
         return cls(slug.owner, slug.name, frozenset({slug.name}))
 
     def claims_url(self, url: str) -> bool:
-        """True when ``url`` is a github.com remote for ``owner/repo``."""
+        """Check whether ``url`` is a github.com remote for ``owner/repo``."""
         try:
             slug = RepoSlug.from_remote_url(url)
         except ValueError:
@@ -63,7 +63,7 @@ class EntryMatcher:
         )
 
     def claims_plugin(self, plugin: Mapping[str, object]) -> bool:
-        """True for a marketplace entry named for the project or sourced from it."""
+        """Match marketplace entries by project name or source."""
         source = plugin.get("source")
         url = (
             cast("dict[str, object]", source).get("url")
@@ -73,11 +73,11 @@ class EntryMatcher:
         return self._is_named(plugin.get("name")) or self.claims_url(str(url or ""))
 
     def claims_website(self, entry: Mapping[str, object]) -> bool:
-        """True for a website entry whose id or GitHub URL is the project's."""
+        """Match website entries by project ID or GitHub URL."""
         return self._is_named(entry.get("id")) or self.claims_url(
             str(entry.get("githubUrl") or "")
         )
 
     def _is_named(self, value: object) -> bool:
-        """True when ``value`` (a JSON name field) is one of ``names``."""
+        """Check whether the JSON name field is among ``names``."""
         return isinstance(value, str) and value in self.names

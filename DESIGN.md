@@ -5,6 +5,74 @@ proposing changes to settled decisions. See
 [patterns/design-decision-log.md](patterns/design-decision-log.md) for the
 format spec.
 
+## DES-045: Punt CLI Command Map
+
+**Date:** 2026-11-24
+
+**Decision.** Group checkout operations under `repo` (`init`, `audit`,
+`scan-pii`, `seed`) and release execution under `release run`. Retain
+`enable` and `disable` at the root for fleet-wide repository integration,
+along with `status`, `doctor` and `version`. The root `install` verb sets up
+Claude Code integration for an already installed binary; `install.sh` is
+the external bootstrap. Keep Typer's completion flags. No aliases or
+remote selector: the tool operates on a local checkout. The
+[command reference](README.md#commands) records operands, options and
+the completed-work boundary for each verb.
+
+**Alternatives.** A flat tree doesn't distinguish checkout operations
+from machine setup. Moving `enable` and `disable` under `repo` would break
+the tool-wide integration convention. A separate resume command would
+duplicate the release workflow instead of selecting its starting phase.
+
+## DES-044: Testing Tiers Name Triggers, Not Test Kinds
+
+**Date:** 2026-11-22
+
+**Decision.** Use [Testing](standards/testing.md) for the cross-repo
+schedule. Derive it from vox, including the automated candidate and
+published smoke restored in [vox #635](https://github.com/punt-labs/vox/pull/635).
+Keep the language mechanics in traced rules. Keep the legacy Python pyramid
+as a scope reference, not as a second schedule.
+
+**Alternatives.** Numbering tiers by kind makes the same test change tiers
+when it becomes cheaper, and one tier cannot describe both an offline
+round trip and a live one. Copying the schedule into each language standard
+would make the policy drift. A fleet-wide workflow rewrite in the standards
+change would couple the policy decision to each project's rollout.
+
+## DES-041: Design Shadow Gate
+
+**Decision.** Use the published `punt-oo-ratchet==0.4.0` dev dependency and
+declare responsibility layers for all current Python modules. Entry owns the
+CLI and command presentation, application owns release phase orchestration and
+audit coordination, adapters own concrete Git/GitHub, filesystem, wheel and
+observability integrations, and domain owns values, contracts and pure policies.
+
+Layer by responsibility, not package location. The `phases.shared` package mixes
+pure argv classification (`hook_firing`), a process port (`ops`), process
+execution (`command_runner`) and workflow orchestration (`pipeline`). These
+belong to domain, domain, adapters and application respectively. `wheel_probe`
+ships the concrete isolated-interpreter probe as well as parsing its response,
+so it remains an adapter rather than being treated as only a value type.
+
+**Alternatives.** A blanket layer for `phases.shared` would conceal those
+boundaries. Gating all current findings would require clearing existing debt.
+Instead, gate the merge-base verdict so existing debt remains visible without
+blocking unchanged code.
+
+**Outcome.** `make design-shadow` passes a literal environment-provided base ref
+to the CLI, which computes its merge-base internally. PR CI captures successful,
+empty and input-error output and appends it to the job summary even on failure.
+The target parses JSON from the pinned scanner, failing on `would-fail` verdicts,
+tool errors and invalid output. `good-deed: trade` passes: removing tier-1 debt
+can accept metric regressions only when no tier-0 or tier-1 findings are added.
+The existing OO, coupling and suppression gates remain independent constraints.
+`make report` runs the full design scan non-fatally; its existing OO diagnostic
+also continues on threshold findings so the design section is reached.
+`make check` includes `design-shadow` but not `report`; bare `make` continues to
+show help. Baselines remain unchanged. New unmatched modules produce tier-1
+`unlayered-module` findings and fail the shadow gate.
+
 ## DES-001: Plugin Dev/Prod Namespace Isolation
 
 **Date:** 2026-02-22
@@ -2504,3 +2572,133 @@ accepted deliberately.
 | Keep `Bash(<cli> -*)` in the ask tier | It prompts read-only `--version`/`--help` (no verb, not unsafe) on every call — noise with no safety gain, since the tier is a net, not a boundary. |
 | Keep the catch-all, add explicit allow exceptions for `--version`/`--help` | Maintains a growing exception list and re-breaks on each new read-only flag; the per-verb rule needs no exceptions. |
 | Treat the flag-before-verb bypass as a security hole to close | The `ask` tier was never a security boundary; closing a "bypass" in a courtesy prompt is effort against a threat model Punt Labs tools do not have. |
+
+## DES-040: Shared Observability and One Span per CLI Invocation
+
+**Date:** 2026-11-19
+**Status:** SETTLED
+**Topic:** Private diagnostics and privacy-safe local command telemetry
+
+### Context
+
+Punt needs durable diagnostics at each process entry point and typed local
+telemetry without recording arguments, paths, subprocess output or exception
+content. Logging, privacy, rotation and telemetry transport belong in the shared
+`punt-observe` package, not in each consumer.
+
+### Design
+
+Initially, `punt-observe` was pinned to Git commit
+`53e657555cab240795c850ea7f0e4dd77a8d98fc` because it was not yet on PyPI.
+PyPI rejects direct-reference dependencies: a punt-kit PyPI release therefore
+required publishing punt-observe first and replacing the Git reference with a
+released version. Publication timing was Jim's call; the adoption change published
+neither package.
+
+Release prerequisites reject direct URL references in `[project].dependencies`
+and every `[project.optional-dependencies]` group, including VCS, archive and
+local-file references. The metadata-only PyPI-compatibility check runs before phase selection on
+every invocation, including resumed releases, and at the start of Phase 1.
+Its remedy names the dependency and any optional group: publish it to PyPI and
+pin a version before releasing. This prevents discovering the distribution
+constraint only during a post-tag PyPI upload.
+
+`EntryPointLogging` binds the process role and terminal policy to the shared
+configuration boundary. Libraries only obtain module loggers. Diagnostics
+remain separate from the shared package's local SQLite telemetry store.
+
+`ObservedGroup` wraps Typer's outer invocation boundary, not individual command
+callbacks. It records one `punt.cli.command` v1 span for success, help, usage
+errors and failed commands, with a closed vocabulary derived from the actual
+registered commands, an outcome enum and a JSON-output boolean. Nonzero exits
+are errors; zero exits are successful. Original exceptions and exit codes are
+preserved. Shutdown waits at most two seconds. Off switches and failure isolation
+remain owned by the shared facade; instrumentation never imports exporters.
+
+### Amendment — 2026-11-20: PyPI distribution
+
+`punt-observe` is now published on PyPI and pinned as `punt-observe==0.1.0`.
+This supersedes the Git pin and publication prerequisite above. The general
+PyPI-compatibility release guard and its tests remain: direct references in
+runtime dependencies or any optional-dependency group are rejected before
+tagging, both in Phase 1 and before phase selection on resumed releases.
+The check is independent of punt-observe's distribution source. Releases no
+longer need to wait for the shared package's publication. Version 0.1.0 includes
+the fork-hook and exit-flush fixes; schema and lifecycle ownership remain unchanged.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|---|---|
+| Vendor diagnostics or telemetry code | Duplicates security-sensitive rotation, redaction and failure isolation. |
+| Use an unpinned Git branch | Makes installation and release inputs mutable. |
+| Publish punt-kit with the direct Git dependency | PyPI rejects direct-reference dependencies. |
+| Decorate individual callbacks | Misses help and parsing failures and can double-count grouped dispatch. |
+| Record raw argv or exception messages | Exposes paths and content outside the closed telemetry schema. |
+
+## DES-042: Advisory Edit Checks and One Handoff Dispatcher
+
+**Date:** 2026-11-23
+**Status:** SETTLED
+**Topic:** Repository agent quality gates
+
+### Context
+
+Running the full quality gate after every edit blocks incomplete work and
+repeats expensive tests. The ethos plugin already dispatches `SubagentStop`.
+
+### Design
+
+Select the repository's named `punt-kit` check set through `.punt-labs/ethos.yaml`.
+Edits run scoped, read-only advisory checks and fail open. Commits block on
+staged-file checks and source ratchets. Handoff blocks on `files: all`,
+`make check`, with the matching ethos plugin as its sole dispatcher.
+Ethos skips handoff checks, including `files: all`, for a provably read-only
+agent: an unchanged start fingerprint and no own or recent unattributed
+mutating audit entries. Missing or unreadable evidence runs the gate.
+Generated agents remain owned by ethos; seed the full bundle before regeneration.
+The check set and its prerequisites document, `docs/advisory-checks.md`, were removed with ethos from this repository; they remain in git history.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|---|---|
+| Full `make check` after each edit | Blocks partial work and repeats the whole suite. |
+| Add a project `SubagentStop` dispatcher | Duplicates the plugin dispatcher and runs the full gate twice. |
+| Hand-edit generated agent hooks | Regeneration overwrites local changes; the generator owns stdin forwarding. |
+
+## DES-043: CLAUDE.md Marker Migration Has a Dedicated Collaborator
+
+**Date:** 2026-11-23
+**Status:** SETTLED
+**Topic:** Safe removal of legacy managed CLAUDE.md sections during init
+
+### Design
+
+`punt init` delegates CLAUDE.md marker migration and standards-reference
+updates to `punt_kit.claude_markers.ClaudeMarkers`. Complete, matching
+`punt:begin` / `punt:end` sections are deleted, preserving surrounding user
+prose and bare imports. Fenced examples are ordinary content. Makefile marker
+sections remain a separate mechanism and are untouched.
+
+Malformed, nested, mismatched or unterminated marker structures produce a
+warning and skip stripping the file; missing standards references are still
+appended. The update holds the shared CLAUDE.md import lock and uses atomic
+replacement, preserving the file's BOM, line endings and permissions.
+
+### Why
+
+The collaborator isolates the migration grammar and file-update behavior from
+init's orchestration. Inlining it regressed init's complexity and module size.
+Extraction instead improves init's average complexity from 6.50 to 6.36 and
+module size from 560 to 548. Its added dependency raises efferent coupling
+from 7 to 8, accepted through a file-scoped, audited coupling relaxation with
+source `PL-971`, not a blanket rebaseline.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|---|---|
+| Inline marker migration in init | Regresses init's complexity and size ratchets and mixes parsing with orchestration. |
+| Reuse seed's section replacement parser | Normalizes line endings and treats malformed sections as fatal; migration must preserve user content and continue reference initialization. |
+| Strip through an unmatched begin marker | Risks deleting user-owned content without a matching section boundary. |

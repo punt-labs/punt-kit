@@ -303,10 +303,10 @@ does not have.
 
 Run-state is per-checkout, machine-local **live state**: it is bound to one
 developer's checkout driving one PR, and the executor rewrites it on every
-transition and every tick. `standards/punt-labs-dir.md` §3 routes exactly this
+transition and every tick. `standards/punt-labs-dir.md` PLD-2 routes exactly this
 class of state — "person- or machine-scoped live state, but repo-bound" — to
-the **local zone**, `.punt-labs/local/<tool>/`, never committed (§1 core
-principle, §5 "Live State is Never a Tracked File"). So run-state persists,
+the **local zone**, `.punt-labs/local/<tool>/`, never committed (PLD-4).
+So run-state persists,
 keyed by instance, to:
 
 ```text
@@ -323,9 +323,9 @@ keyed by instance, to:
 ```
 
 This is inside the tool's own subtree (`punt/`) under the reserved `local/`
-zone — not a new top-level dot-directory, which `punt-labs-dir.md` §2 forbids.
+zone — not a new top-level dot-directory, which `punt-labs-dir.md` PLD-2 forbids.
 It needs **no rule beyond the canonical gitignore block**: the block's
-`.punt-labs/**/local` line (`punt-labs-dir.md` §6) ignores the whole local
+`.punt-labs/**/local` line (`punt-labs-dir.md` PLD-4) ignores the whole local
 zone. Repos that have not yet adopted the canonical block — punt-kit's own
 `.gitignore` does not carry it today — must adopt it before run-state lands,
 or the run-state files become trackable. (The `recap_sent` flag is used by
@@ -375,7 +375,7 @@ the first run-state write, `--resume` finds no file and starts from the initial
 state, which is safe because the initial visit is itself idempotent.
 
 The local zone `.punt-labs/local/punt/auto/` (fix chosen in §2.4 above,
-`punt-labs-dir.md` §3) is deliberately not `.tmp/`: `make clean` wipes `.tmp/`
+`punt-labs-dir.md` PLD-2) is deliberately not `.tmp/`: `make clean` wipes `.tmp/`
 (confirmed, `Makefile:29` — `clean: rm -rf dist/ .tmp/`), and a PR watch loop
 can outlive a `make clean`. Run-state needs a durable, gitignored home; the
 local zone is exactly that, and unlike `.tmp/` it is not swept by a build
@@ -721,12 +721,12 @@ graph visible in the `states` list.
 - **Run-state location — settled: the local zone.** Run-state persists to
   `.punt-labs/local/punt/auto/<name>-<instance>.json`. It is per-checkout,
   machine-local live state the executor rewrites every tick, which
-  `standards/punt-labs-dir.md` §3 routes to the local zone
-  `.punt-labs/local/<tool>/` (§1 core principle; §5 "Live State is Never a
-  Tracked File"). This is inside the tool's own subtree, not a new top-level
-  dot-directory — `punt-labs-dir.md` §2 forbids the latter, which an earlier
+  `standards/punt-labs-dir.md` PLD-2 routes to the local zone
+  `.punt-labs/local/<tool>/` (PLD-4). This is inside the tool's own subtree,
+  not a new top-level
+  dot-directory — `punt-labs-dir.md` PLD-2 forbids the latter, which an earlier
   draft's `.punt/auto/` would have created. It needs **no new `.gitignore`
-  rule**: the canonical block's `.punt-labs/**/local` line (§6) already ignores
+  rule**: the canonical block's `.punt-labs/**/local` line (PY-PLD-4) already ignores
   the whole zone. `.tmp/` is ruled out because `make clean` wipes it
   (confirmed, `Makefile:29`) and a PR watch loop can outlive a clean; that only
   rules out `.tmp/`, it does not justify a new root. (Details in §2.4.)
@@ -797,7 +797,7 @@ Each carries a recommendation, per the design-gate discipline.
    `branch-of-pr.sh` —
    that wrap the `gh`/GraphQL specifics of the merge gate and cleanup. Where do
    they live and ship: packaged with `punt` and deposited into the repo on
-   enable (the vendored zone, `punt-labs-dir.md` §7), or repo-local under
+   enable (the vendored zone, `punt-labs-dir.md` PLD-7), or repo-local under
    `scripts/`? **Recommend punt-packaged and deposited under
    `.punt-labs/punt/`.** These scripts encode org standards — the exact
    `merge_gate` clauses (workflow §5) and the `git.md` §4 cleanup — so they must
@@ -805,7 +805,7 @@ Each carries a recommendation, per the design-gate discipline.
    they would drift out of sync with the gate they enforce. Repo-local
    `scripts/` would mean fifteen divergent copies of the merge gate; a vendored,
    tool-shipped set is one authoritative copy that `enable`/upgrade refreshes
-   wholesale (the vendored-zone determinism contract, `punt-labs-dir.md` §7).
+   wholesale (the vendored-zone determinism contract, `punt-labs-dir.md` PLD-7).
    Sub-question the operator should rule on: whether these are `pr-loop`-specific
    or a general `punt`-shipped gate library other machines reuse — I lean
    general, since `merge_gate` is not unique to `pr-loop`.

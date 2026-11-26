@@ -15,6 +15,7 @@ make check
 ```
 
 The Makefile is the source of truth for what `check` means (`make help` lists targets).
+[TESTING.md](TESTING.md) maps the test tiers, selectors and deviations.
 
 ## Issue Tracking
 
@@ -24,7 +25,7 @@ Work is tracked in Linear (team Punt Labs, key `PL`); punt-kit's issues carry th
 
 punt-kit is both a Python package (`punt` CLI) and a Claude Code plugin
 (`punt@punt-labs` on the marketplace). The plugin wraps the CLI with slash
-commands (`/punt init`, `/punt audit`, `/punt reconcile`, etc.).
+commands (`/punt:init`, `/punt:audit`, `/punt:reconcile`, etc.).
 
 ### Key rules
 
@@ -185,7 +186,7 @@ which provides LLM-driven error diagnosis and a post-release verification step.
 
 The playbook has two steps:
 
-1. **`punt release`** (script) — the deterministic CLI (`src/punt_kit/release.py`)
+1. **`punt release run`** (script) — the deterministic CLI (`src/punt_kit/release.py`)
    that executes phases 1–11. On failure the executor diagnoses the error,
    attempts a fix, and re-runs (`on_failure: diagnose`).
 2. **Verify** (LLM judgment) — spot-checks that all artifacts landed correctly
@@ -195,7 +196,7 @@ The playbook has two steps:
 
 All main-branch changes go through PRs (zero bypass actors).
 
-### Phase structure (`punt release`)
+### Phase structure (`punt release run`)
 
 | Phase | Name | Description |
 |-------|------|-------------|
@@ -204,7 +205,7 @@ All main-branch changes go through PRs (zero bypass actors).
 | 3 | build | `uv build` + `twine check` on branch |
 | 4 | release-pr | Plugin swap (hybrid), push branch, create PR, wait for CI, squash-merge |
 | 5 | tag | Tag main HEAD with `vX.Y.Z`, push tag |
-| 6 | ci | Wait for tag-triggered `release.yml` (build → TestPyPI → test-install → PyPI) |
+| 6 | ci | Wait for tag-triggered `release.yml` (build → candidate smoke → PyPI → published smoke) |
 | 7 | github-release | Create GitHub release with changelog notes |
 | 8 | pypi | Install from PyPI with the tag's `install-constraints.txt` and `install-overrides.txt` when present (else unpinned, logged), restart the declared user service (`[tool.punt-kit.release.service]`) and confirm a new PID, run doctor, restore editable install |
 | 9 | post-release | Dev plugin restore (hybrid) + README install SHA bump via PR |
@@ -222,8 +223,8 @@ All main-branch changes go through PRs (zero bypass actors).
 - **PyPI approval gate**: The `pypi` job in the release workflow requires
   manual approval in the GitHub Actions UI. Phase 6 (CI wait) blocks until
   all jobs complete, so the developer must approve the deployment during the
-  release. Expect ~20 minutes for the full pipeline (build → TestPyPI →
-  test-install → approve → PyPI).
+  release. Expect ~20 minutes for the full pipeline (build → candidate
+  smoke → approve → PyPI → published smoke).
 - **`--resume-from <phase>`**: The CLI supports resuming from any phase. When
   resuming without an explicit version, reads from `pyproject.toml` (not
   changelog). Always pass the version explicitly when resuming from `bump` if

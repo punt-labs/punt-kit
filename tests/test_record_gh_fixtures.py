@@ -139,13 +139,8 @@ def test_require_read_only_accepts_the_documented_shapes(cmd: list[str]) -> None
             'query=mutation { resolveReviewThread(input: {threadId: "x"}) '
             "{ thread { isResolved } } }",
         ],
-        # STRUCTURAL: any short-flag cluster containing X/f/F anywhere,
-        # bundled behind an unrelated boolean flag or bare — refused
-        # regardless of position, spelling enumeration, or value. Every
-        # one of these is live-proven against a real gh binary (see
-        # docs/design-release-failure-harness.md §2b and the round-3
-        # evaluation): -ifx=1 sent a real mutating POST, -iXPUT/-iX GET/
-        # -iXGET all bundle -i with -X identically to the unbundled form.
+        # Refuse clusters containing X/f/F in any position: gh honors bundled
+        # method and body flags just like standalone flags.
         ["gh", "api", _PROTECTION_ENDPOINT, "-ifx=1"],  # -i bundled with -f
         ["gh", "api", _MERGE_ENDPOINT, "-iXPUT"],  # -i + -X attached
         ["gh", "api", _PROTECTION_ENDPOINT, "-iX", "GET"],  # -i + -X split
@@ -655,14 +650,8 @@ def test_recorder_writes_a_sanitized_envelope(
 def test_recorder_refuses_a_command_needing_redaction(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A branch/tag/PR-title argument copied from live GitHub data could in
-    principle carry a token- or email-shaped substring. Silently storing a
-    *sanitized* ``_meta.command`` would be worse than the leak it prevents:
-    ``--check`` executes ``_meta.command`` as the live argv to replay, so a
-    redacted branch name would make it target a different, likely
-    nonexistent ref — reporting a wrong result instead of no longer
-    validating anything real. Refusing to record the fixture at all is the
-    only outcome that neither leaks the secret nor corrupts replay.
+    """Refuse to record secret-bearing argv: sanitizing a replay argument
+    would change the ref or endpoint that the drift check queries.
     """
     from tools.record_gh_fixtures import CommandNotReplayableError, FixtureRecording
 
@@ -818,8 +807,7 @@ def test_drift_checker_reports_a_shape_mismatch(
     def fake_run(
         cmd: Sequence[str], **_kwargs: object
     ) -> subprocess.CompletedProcess[str]:
-        # A field was renamed live — this is the drift the check exists to
-        # catch.
+        # A renamed live field must be reported as drift.
         return subprocess.CompletedProcess(
             args=list(cmd),
             returncode=0,

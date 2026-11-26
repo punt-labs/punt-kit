@@ -1,4 +1,4 @@
-"""Phase 6: wait for the tag-triggered CI run to pass."""
+"""Wait for the tag-triggered release workflow to pass."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ _console = Console()
 
 @final
 class Phase6CiWait:
-    """Phase 6: wait for CI."""
+    """Wait for the tag-triggered release workflow to pass."""
 
     __slots__ = ("_dry_run", "_info", "_ops", "_version")
 
@@ -36,6 +36,7 @@ class Phase6CiWait:
     def __new__(
         cls, info: ProjectInfo, version: str, *, dry_run: bool, ops: ReleaseOps
     ) -> Self:
+        """Create the phase with its release inputs and operations."""
         self = super().__new__(cls)
         self._info = info
         self._version = version
@@ -44,11 +45,16 @@ class Phase6CiWait:
         return self
 
     def run(self, *, poll_attempts: int, poll_interval: float) -> None:
-        """``poll_attempts``/``poll_interval`` are injected rather than read
-        from ``phases.shared.timeouts`` directly — many tests monkeypatch
-        ``punt_kit.release._CI_RUN_POLL_ATTEMPTS``/``_CI_RUN_POLL_INTERVAL``
-        and call ``punt_kit.release._phase6_ci_wait`` expecting the patch to
-        shrink the poll window to a test-speed budget.
+        """Wait for the tag-triggered release workflow to pass.
+
+        Args:
+            poll_attempts: Maximum workflow-discovery lookups.
+            poll_interval: Seconds between discovery lookups.
+
+        Raises:
+            ReleaseError: The workflow or tools are missing, or CI cannot be found or
+                pass.
+            subprocess.TimeoutExpired: Resolving the local tag exceeds its timeout.
         """
         info = self._info
         version = self._version
@@ -76,9 +82,7 @@ class Phase6CiWait:
         if gh is None:
             ops.fail("gh CLI not found — install from https://cli.github.com")
 
-        # Resolve the tag to a commit so the run's headSha can be checked
-        # against it. Annotated tags need the ^{commit} peel; lightweight
-        # tags ignore it.
+        # Peel annotated tags so headSha is compared against a commit.
         peel = ops.run(
             ["git", "rev-parse", f"{tag}^{{commit}}"], cwd=str(info.root), check=False
         )
@@ -90,11 +94,7 @@ class Phase6CiWait:
         ops.info(f"Looking for the release.yml run for {tag} ({commit[:8]})...")
 
         list_cmd = TagRunSelector.list_command(gh, tag)
-        # A gh failure must not masquerade as "no run yet", and a lookup
-        # that never happened must not be silently dropped from the
-        # account. Counting both outcomes keeps the two facts separable: a
-        # blip after clean polls is not "gh never worked", and 23 failures
-        # after one success is not "no run".
+        # Count failed lookups separately from successful searches with no matching run.
         gh_ok = 0
         gh_failed = 0
         last_gh_error = ""
@@ -110,9 +110,7 @@ class Phase6CiWait:
                     timeout=CI_RUN_LIST,
                 )
             except subprocess.TimeoutExpired:
-                # A listing that hangs is a lookup that did not happen, not
-                # a reason to end the release in a traceback. Polling
-                # already tolerates a failed lookup, so route it there.
+                # Treat a timeout as a failed lookup within the polling budget.
                 gh_failed += 1
                 last_gh_error = f"gh run list timed out after {CI_RUN_LIST}s"
                 return ()
@@ -123,17 +121,11 @@ class Phase6CiWait:
             try:
                 parsed = json.loads(result.stdout)
             except json.JSONDecodeError as exc:
-                # A zero exit with unparseable stdout is still a failed
-                # lookup. Letting the decode error escape would bypass both
-                # fail sites and end the release in a traceback instead of
-                # a diagnosis.
+                # Unparseable output is a failed lookup even when gh exits successfully.
                 gh_failed += 1
                 last_gh_error = f"gh run list returned unparseable JSON: {exc}"
                 return ()
-            # Valid JSON of the wrong shape is the same problem one step
-            # later: gh reports errors as an object, and casting one to a
-            # run sequence would surface as a TypeError from inside poll
-            # rather than a diagnosis.
+            # Reject error objects and other shapes before passing runs to the selector.
             if not isinstance(parsed, list) or not all(
                 isinstance(run, dict) for run in cast("list[object]", parsed)
             ):
@@ -157,17 +149,13 @@ class Phase6CiWait:
             if gh_ok == 0:
                 ops.fail(f"gh run list never succeeded: {last_gh_error}")
             reasons = [str(exc)]
-            # Failed lookups shrink the real search budget, so say how many
-            # there were. Silence here reads as "we looked 24 times and
-            # found nothing".
+            # Report failed lookups because they reduce the effective search budget.
             if gh_failed:
                 reasons.append(
                     f"{gh_failed} of {gh_ok + gh_failed} lookups failed "
                     f"({last_gh_error})"
                 )
-            # Every run in the list is already this tag's, so a near-miss
-            # is the most useful thing phase 6 knows — and the thing that
-            # contradicts "the tag push may not have triggered CI".
+            # Include near-misses from this tag's runs to explain a selection failure.
             if misses := selector.describe_misses(latest):
                 reasons.append(f"saw {misses}")
             ops.fail("; ".join(reasons))
@@ -183,10 +171,7 @@ class Phase6CiWait:
                 timeout=CI_WATCH,
             )
         except subprocess.TimeoutExpired:
-            # The pypi job gates on a manually-approved environment, so a
-            # release left overnight can outlast the watch while the run
-            # is perfectly healthy. Dying in a traceback here tells the
-            # operator nothing about which of those two happened.
+            # A manual PyPI environment approval can outlast the watch timeout.
             ops.fail(
                 f"stopped watching run {run_id} after "
                 f"{CI_WATCH // 3600}h — it may still be waiting for the "

@@ -1,6 +1,6 @@
 # Plugin Standards
 
-**Updated:** 2026-11-04
+**Updated:** 2026-11-24
 
 Standards for Claude Code plugins across all Punt Labs projects.
 
@@ -85,7 +85,7 @@ commit → push. See DES-007 in DESIGN.md for the full rationale.
 
 ### Audit enforcement
 
-`punt audit` checks that every prod command (`*.md` excluding `*-dev.md`) has a
+`punt repo audit` checks that every prod command (`*.md` excluding `*-dev.md`) has a
 corresponding `-dev` variant.
 
 ---
@@ -325,7 +325,7 @@ Plugins that expose MCP tools must declare them in `plugin.json` using the
     "<server-name>": {
       "type": "stdio",
       "command": "<cli-binary>",
-      "args": ["serve", "--transport", "stdio"]
+      "args": ["mcp"]
     }
   }
 }
@@ -358,17 +358,16 @@ matchers, and permission entries must use the full prefix.
 
 **Tool names are `noun_verb` when the server has more than one noun.**
 `scene_show`, `session_identify`, `topic_publish`, `menu_ls` — the
-same noun-first grouping [cli.md § Subcommand naming](cli.md#subcommand-naming)
+same noun-first grouping [CLI-2](cli.md#cli-2-group-product-operations-by-noun)
 requires. Single-verb tool names (`search`, `who`) are reserved for
 servers with only one kind of noun to act on. Grouping by noun keeps
 related tools together in the client's tool list and lets the vocabulary
 grow without renaming the surface.
 
 **Every MCP tool has a slash-command equivalent** unless a considered
-exception is stated. The equivalence is symmetric with [cli.md § Layer 1
-Product commands](cli.md#layer-1-product-commands): every MCP tool
-also has a CLI command; the slash surface tracks the MCP surface with
-the same rule. Common considered exceptions: non-blocking receive verbs
+exception is stated. See [CLI-9](cli.md#cli-9-project-product-capabilities-without-exposing-administration)
+for how the CLI projects equivalent capabilities.
+Common considered exceptions: non-blocking receive verbs
 (`topic recv` — a slash fires once with an empty result almost always),
 identity-declaration verbs (`session identify` — declared once at
 session start, not mid-turn), and programmatic-only registrations
@@ -619,9 +618,8 @@ does not need.
 
 **MCP-first commands:** Commands that set config, query state, or trigger
 operations should list MCP tools in `allowed-tools` — not `Bash`, `Read`, or
-`Write`. The model calling an MCP tool is faster than calling Bash → CLI
-(see [CLI standards § Call path performance](cli.md#call-path-performance))
-and eliminates file-format coupling.
+`Write`. Calling an MCP tool directly avoids the extra shell and CLI
+invocations and eliminates file-format coupling.
 
 ```yaml
 # CORRECT: MCP-first (vox /vox command)

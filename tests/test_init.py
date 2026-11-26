@@ -34,7 +34,7 @@ _LOCK_LINE = "*.punt-import.lock\n"
 
 @pytest.fixture(autouse=True)
 def _without_bd(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No test here runs the host's `bd init`, which a failure now fails the run."""
+    """Fail any test that attempts to run the host's `bd init`."""
     monkeypatch.setattr(shutil, "which", _no_bd)
 
 
@@ -187,6 +187,23 @@ def test_init_creates_release_workflow_with_metadata(tmp_path: Path) -> None:
     # Jinja2 placeholders must not appear in rendered output
     assert "{{ package_name }}" not in content
     assert "{{ cli_command }}" not in content
+
+    smoke = content.split("\n  published-smoke:\n", 1)[1]
+    assert smoke.startswith("    needs: pypi\n")
+    assert "timeout-minutes: 2" in smoke
+    assert 'version="${GITHUB_REF_NAME#v}"' in smoke
+    assert "uv venv --python 3.13 venv" in smoke
+    assert "pip install --python venv/bin/python" in smoke
+    assert "--default-index https://pypi.org/simple/" in smoke
+    assert '"punt-quarry==$version"' in smoke
+    assert "actual=$(venv/bin/python -I -c" in smoke
+    assert "from importlib.metadata import version" in smoke
+    assert "from packaging.version import Version" in smoke
+    assert "Version(actual) != Version(expected)" in smoke
+    assert 'venv/bin/"quarry" --help' in smoke
+    assert 'venv/bin/"quarry" version' in smoke
+    assert 'cli_version = output.removeprefix("quarry ")' in smoke
+    assert "Version(cli_version) != Version(expected)" in smoke
 
 
 def test_init_skips_release_without_cli_entry_point(tmp_path: Path) -> None:
@@ -1036,7 +1053,7 @@ def test_init_never_activates_a_dormant_negation(tmp_path: Path) -> None:
 
     before = ignored()
     run_init(str(tmp_path))
-    assert ignored() == before, "punt init changed what git ignores"
+    assert ignored() == before, "punt repo init changed what git ignores"
 
 
 @pytest.mark.parametrize(
@@ -1461,7 +1478,7 @@ def test_init_shows_a_project_name_with_markup_literally(
 
     run_init(str(root))
 
-    assert "punt init — p[bold]x" in flat(capsys.readouterr().out)
+    assert "punt repo init — p[bold]x" in flat(capsys.readouterr().out)
 
 
 def test_init_shows_an_invalid_language_choice_with_markup_literally(
@@ -1471,6 +1488,8 @@ def test_init_shows_an_invalid_language_choice_with_markup_literally(
 ) -> None:
     monkeypatch.setattr(shutil, "which", _no_bd)
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("sys.stderr.isatty", lambda: True)
+    monkeypatch.setenv("NO_COLOR", "1")
 
     def answer(_prompt: str = "") -> str:
         return _MARKUP
@@ -1479,7 +1498,7 @@ def test_init_shows_an_invalid_language_choice_with_markup_literally(
 
     run_init(str(tmp_path))
 
-    assert f"'{_MARKUP}'" in flat(capsys.readouterr().out)
+    assert f"'{_MARKUP}'" in flat(capsys.readouterr().err)
 
 
 def test_init_shows_an_unsupported_language_with_markup_literally(

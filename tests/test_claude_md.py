@@ -209,8 +209,8 @@ class TestLockPath:
 
     def test_lock_name_is_tool_agnostic(self, tmp_path: Path) -> None:
         host = tmp_path / "CLAUDE.md"
-        imp = ClaudeMdImport(host, _LINE)
-        assert imp._lock_path == tmp_path / ".CLAUDE.md.punt-import.lock"  # pyright: ignore[reportPrivateUsage]
+        ClaudeMdImport(host, _LINE).register()
+        assert (tmp_path / ".CLAUDE.md.punt-import.lock").is_file()
 
 
 class TestFenceMarkerMatching:

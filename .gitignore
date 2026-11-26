@@ -10,7 +10,6 @@
 .env*.local
 !.env.example
 .envrc.local
-.biff.local
 .claude/settings.local.json
 .claude/settings.local.*
 .claude/mcp.local.json
@@ -203,7 +202,6 @@ uv.toml
 # Local-only files (machine-specific, per-user)
 
 # Vox cached audio
-.vox/*.mp3
 
 # Quarry session-transcript captures (pkit-kcps)
 
@@ -218,3 +216,4 @@ uv.toml
 
 # Working notes, not part of the package
 resume.md
+coverage.xml
