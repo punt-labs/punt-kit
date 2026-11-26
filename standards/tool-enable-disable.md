@@ -225,7 +225,7 @@ tool's agent-facing manual — how an agent or user *drives* the tool: slash
 commands, auto-behaviors, tips, gotchas. It is not the tool repo's developer
 `CLAUDE.md` and not a reference dump. Precedent: vox's deposited
 `<repo>/.punt-labs/vox/CLAUDE.md`, whose opening line is "how an *agent* drives
-vox — not how to develop vox itself," and the beads `AGENTS.md` concept.
+vox — not how to develop vox itself."
 
 The doc is **static content shipped with the tool**. It needs no per-repo
 localization or rendering — the same guide is deposited everywhere. How the tool
@@ -415,7 +415,7 @@ the permissions.md § 3 baseline, because `punt repo init` scaffolds that file a
 must run unprompted from the first scaffold.
 
 `punt`'s deposited guide is **not** a home for repo-specific dev-process
-content — quality gates, beads, standards references, available tooling. That
+content — quality gates, issue tracking, standards references, available tooling. That
 is not a tool user guide; where such content lives is out of scope for this
 standard.
 
@@ -505,9 +505,6 @@ Legacy content classes, preservation and destinations: [PLD-10](punt-labs-dir.md
   (integration.md L0) lands in the **same release train** as the tool release
   that performs the migration, so no peer checks the marker before the tool
   that writes it has shipped.
-- **`.beads/` needs no migration because it is out of scope for this section
-  entirely** — [punt-labs-dir.md PLD-1](punt-labs-dir.md#pld-1-shared-repository-data-has-a-declared-root)
-  states the canonical exemption.
 
 ## 2.13 `enable` versus `init`
 
@@ -524,7 +521,7 @@ duplicates:
 | Verb | Job | Writes |
 |------|-----|--------|
 | `enable` / `disable` | Turn CLAUDE.md guidance composition and hooks on/off in this repo | `.punt-labs/<tool>/` (guide + `enabled` marker), the import line, additive `.claude/settings.json` entries |
-| `init` | Create and populate the tool's repo config/state | For a Punt Labs tool: the config zone (`.punt-labs/biff/config.yaml`, `.punt-labs/quarry/config.md`). `.beads/` is not this row's business — [punt-labs-dir.md PLD-1](punt-labs-dir.md#pld-1-shared-repository-data-has-a-declared-root) states the canonical exemption |
+| `init` | Create and populate the tool's repo config/state | For a Punt Labs tool: the config zone (`.punt-labs/biff/config.yaml`, `.punt-labs/quarry/config.md`). |
 
 The `enabled` marker (2.7) is the enabled signal; the repo config file is
 not, and no tool reads a bare repo-root sentinel (`.biff`, `.quarry.toml`)

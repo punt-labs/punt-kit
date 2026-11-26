@@ -580,8 +580,9 @@ for the full decision record.
 3. **Consumers add domain-specific context.** Only z-spec can narrate
    "Model check: 10K states, all visited." Only quarry can compose
    search result tables for lux.
-4. **File beads in the consumer, not the building block.** If biff
-   wants a lux display on PR creation, the bead goes in biff. Lux has
+4. **File issues in the consumer, not the building block.** If biff
+   wants a lux display on PR creation, the Linear issue carries biff's
+   repo label. Lux has
    no upstream awareness.
 
 ### Activation asymmetry (DES-010)
