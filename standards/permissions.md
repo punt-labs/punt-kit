@@ -825,6 +825,7 @@ multi-client scenarios without a superuser path.
 uninstall, and doctor never appear on MCP, REST, or
 the library surface; `enable` and `disable` reach MCP only as the enablement
 tool of [TED-35](tool-enable-disable.md#ted-35-write-the-same-markers-from-cli-and-mcp) (see [tool-enable-disable.md § 2.3](tool-enable-disable.md#23-the-enable--disable-convention)
-and [CLI-9](cli.md#cli-9-project-product-capabilities-without-exposing-administration)). Exposing them
-on any client surface an agent-turn can reach recreates the
-superuser surface this rule forbids.
+and [CLI-9](cli.md#cli-9-project-product-capabilities-without-exposing-administration)). Exposing any
+other admin verb on a client surface an agent-turn can reach recreates the
+superuser surface this rule forbids; the TED-35 tool is the one exception, and
+it writes only enablement markers, imports and grants.
