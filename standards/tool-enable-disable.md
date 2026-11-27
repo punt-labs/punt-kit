@@ -642,9 +642,11 @@ and grant that `enable` wrote was shared scope, so none moves. What changes:
 - A bare `<tool> enable` now means personal scope. Scripts, playbooks and docs
   that enable a tool for a team pass `--scope project`. A tool that does not
   offer `--scope` keeps bare `enable` as shared scope, and its README says so.
-  A tool makes local its bare default only in the same release that its
-  callers' rollout scripts (`biff-enable-rollout.sh`, `tool-all.sh` and the
-  like) pass `--scope project`.
+  The default changes in two releases. First the tool accepts `--scope
+  project|local` while bare `enable` stays shared; callers' rollout scripts
+  (`biff-enable-rollout.sh`, `tool-all.sh` and the like) then pass `--scope
+  project` and require that release. Only a later release makes bare `enable`
+  local.
 - A loop that runs `<tool> enable` for every tool at agent start is removed, or
   limited to repos where the tool is already enabled, and honors the opt-out;
   under the no-op rule (§2.3) it then changes no bytes.
