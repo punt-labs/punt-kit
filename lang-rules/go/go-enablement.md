@@ -89,9 +89,10 @@ initialization.
 Read hook stdin in a goroutine and stop waiting after a short timeout,
 taking the bytes available; never block the handler on
 `io.ReadAll(os.Stdin)`. The stdin descriptor Claude Code passes may not
-support `SetReadDeadline`, and a direct read can still hang, so the shell gate
-forwards the payload through a fresh pipe (`cat | <tool> hook <event>`) that
-closes at EOF. Test with a pipe whose writer stays open.
+support `SetReadDeadline`, so the timeout is the goroutine's, and the process
+exits without waiting for the abandoned read. The shell gate hands stdin to
+the handler directly; a `cat |` stage in front of it would wait for EOF and
+hang the hook itself. Test with a pipe whose writer stays open.
 
 ## GO-HOOK-3: Gate, wire, register and test hooks
 
