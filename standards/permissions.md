@@ -828,4 +828,4 @@ tool of [TED-35](tool-enable-disable.md#ted-35-write-the-same-markers-from-cli-a
 and [CLI-9](cli.md#cli-9-project-product-capabilities-without-exposing-administration)). Exposing any
 other admin verb on a client surface an agent-turn can reach recreates the
 superuser surface this rule forbids; the TED-35 tool is the one exception, and
-it writes only enablement markers, imports and grants.
+it writes only what `enable` and `disable` write under TED-9 and TED-10.
