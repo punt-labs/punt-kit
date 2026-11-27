@@ -16,8 +16,10 @@ gates and tests against these rules.
 **Implements:** HOOK-1, HOOK-2, HOOK-6 · **Gate:** `review` (hook evaluator)
 
 Business logic lives in `hooks.py` as pure functions. Each takes the payload
-`dict` the dispatcher parsed and returns the context to inject, or `None`;
-it catches every exception and returns `None` or `{}` rather than raising.
+`dict` the dispatcher parsed and returns the context to inject, or `None`. An
+observation handler catches every exception and returns `None`; a mutation
+handler lets the exception reach the dispatcher, which exits non-zero so the
+gate fails closed (HOOK-16).
 
 ```python
 def handle_post_bash(data: dict[str, Any]) -> str | None:
@@ -136,9 +138,14 @@ hook_app = typer.Typer(hidden=True)
 def cc_post_bash() -> None:
     """PostToolUse Bash — internal hook dispatcher."""
     data = _read_hook_input()  # non-blocking, never sys.stdin.read()
-    result = handle_post_bash(data)
-    if result:
-        print(json.dumps(result))
+    context = handle_post_bash(data)
+    if context:
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": context,
+            }
+        }))
 
 
 app.add_typer(hook_app, name="hook")

@@ -25,6 +25,9 @@ All notable changes to this project will be documented in this file.
   status tables left the standards, and the integration matrix moved to
   `docs/integration-matrix.md`. Plugin permission writes now insert new rules
   in sorted position (PERM-19), matching TED-25.
+- HOOK-6 now has mutation handlers fail closed, as HOOK-16 already required,
+  and PERM-27 lets `enable` and `disable` reach MCP as the TED-35 enablement
+  tool instead of banning them from MCP outright.
 - The `/punt:bead-review` slash command and skill are renamed `/punt:issue-review`
   and now audit a repo's open Linear issues (label `repo:<name>`), proposing
   changes and asking before any write. The `autopilot` playbook now picks,

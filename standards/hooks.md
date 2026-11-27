@@ -222,8 +222,9 @@ Business logic lives in the tool's hook module as pure functions
   writes.
 - **Structured input**: Read from the payload the dispatcher passes, not
   from stdin directly.
-- **Graceful degradation**: Catch all errors and return an empty result.
-  Never crash — a crashing hook blocks Claude Code.
+- **Graceful degradation**: An observation handler catches all errors and
+  returns an empty result, because a crashing hook blocks Claude Code. A
+  mutation handler fails closed instead (HOOK-16).
 - **Testable**: Every handler has unit tests that pass payloads and assert
   on return values.
 

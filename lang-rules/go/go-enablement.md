@@ -19,9 +19,12 @@ these cases; this file does not imply that punt-kit executes Go tests.
 
 Read host files with `os.ReadFile` and never translate line endings. Hold
 `syscall.Flock(fd, syscall.LOCK_EX)` on the sibling
-`.<host>.punt-import.lock` for the whole read-modify-write, write
-`os.CreateTemp` in the host's directory, `Chmod` it to the original mode and
-`os.Rename` it over `filepath.EvalSymlinks(host)`. Test LF, CRLF and lone-CR
+`.<host>.punt-import.lock` for the whole read-modify-write. Resolve the
+target with `filepath.EvalSymlinks` when it exists, or resolve its parent
+directory and join the name when it does not. Write `os.CreateTemp` in the
+resolved target's directory, so the rename never crosses a filesystem,
+`Chmod` it to the original mode (`0644` for a new file) and `os.Rename` it over
+the resolved target. Test LF, CRLF and lone-CR
 hosts, a dangling fence, a symlinked host and two parallel writers.
 
 ## GO-TED-2: Implement scoped enable and disable
@@ -29,7 +32,8 @@ hosts, a dangling fence, a symlinked host and two parallel writers.
 **Implements:** TED-5, TED-6, TED-7, TED-8, TED-9, TED-10, TED-11, TED-12, TED-17, TED-22, TED-23 · **Gate:** `review` (enablement evaluator)
 
 Take the scope as a flag validated to `project` or `local`. Before a personal
-write or removal, resolve the target with `filepath.EvalSymlinks` and run
+write or removal, resolve the target as GO-TED-1 does (an absent target
+through its parent directory) and run
 `git check-ignore -q` and `git ls-files --error-unmatch` on it; refuse when the
 target is not ignored or is tracked. Use `bytes.Equal` against the current
 file and skip the write when nothing changes. Check the opt-out before any
@@ -70,8 +74,10 @@ personal preferences in `*.local.*` files.
 
 **Implements:** HOOK-1, HOOK-2, HOOK-6, HOOK-7, HOOK-9, HOOK-25 · **Gate:** `review` (hook evaluator)
 
-Handlers take the decoded payload struct and return the output struct; they
-recover from panics and return an empty result. Start side effects with
+Handlers take the decoded payload struct and return the output struct. An
+observation handler recovers from a panic and returns an empty result; a
+mutation handler (a PreToolUse denial, a Stop block) lets the failure reach
+the gate so it fails closed (HOOK-16). Start side effects with
 `exec.Cmd.Start` and do not `Wait`. Expose handlers as a hidden `hook`
 subcommand, and keep network clients and stores out of the hook path's
 initialization.
@@ -80,9 +86,12 @@ initialization.
 
 **Implements:** HOOK-8 · **Gate:** `review` (hook evaluator)
 
-Read hook stdin with `os.Stdin.SetReadDeadline` and a short timeout, taking
-the bytes available; never `io.ReadAll(os.Stdin)` without a deadline. Test
-with a pipe whose writer stays open.
+Read hook stdin in a goroutine and stop waiting after a short timeout,
+taking the bytes available; never block the handler on
+`io.ReadAll(os.Stdin)`. The stdin descriptor Claude Code passes may not
+support `SetReadDeadline`, and a direct read can still hang, so the shell gate
+forwards the payload through a fresh pipe (`cat | <tool> hook <event>`) that
+closes at EOF. Test with a pipe whose writer stays open.
 
 ## GO-HOOK-3: Gate, wire, register and test hooks
 
@@ -106,8 +115,11 @@ to detect it, and open peer state files read-only.
 **Implements:** PERM-1, PERM-2, PERM-3, PERM-4, PERM-5, PERM-6, PERM-7, PERM-8, PERM-9, PERM-10, PERM-11, PERM-23 · **Gate:** `review` (permissions evaluator)
 
 A Go tool that writes `.claude/settings.json` or `settings.local.json` writes
-only `Read(path)` and `Edit(path)` path rules, plugin-scoped `Skill()` values
-and its own MCP wildcard, and never removes a baseline or deny rule.
+exactly the rules its clauses require: the baseline allow and deny rules when
+it scaffolds a repo, and its own `enable` set (CLI allow and `ask` carve-outs,
+MCP wildcard, plugin-scoped `Skill()` values) when it enables. Every path rule
+it writes is `Read(path)` or `Edit(path)`, and it never removes a baseline or
+deny rule.
 
 ## GO-PERM-2: Scope engine operations to the caller
 
@@ -115,4 +127,5 @@ and its own MCP wildcard, and never removes a baseline or deny rule.
 
 Engine operations take the caller identity as a required parameter and derive
 store keys and ownership from it; no operation accepts an owner override.
-Register admin verbs only as CLI commands.
+Register installation and process supervision only as CLI commands; `enable`
+and `disable` reach MCP only as the TED-35 enablement tool.

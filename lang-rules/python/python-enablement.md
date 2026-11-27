@@ -20,11 +20,13 @@ tests.
 
 Read and write host files as bytes (or with `newline=""`) so no line ending
 is translated. Hold `fcntl.flock(fd, LOCK_EX)` on the sibling
-`.<host>.punt-import.lock` for the whole read-modify-write, write a
-`tempfile.NamedTemporaryFile(dir=<host dir>, delete=False)`, then
-`os.replace` it over `os.path.realpath(host)` with the original mode from
-`os.stat`. Port `ClaudeMdImport` from `punt-labs/biff` for fence
-classification and sorted insertion. Test LF, CRLF and lone-CR hosts, a
+`.<host>.punt-import.lock` for the whole read-modify-write. Resolve the
+target with `os.path.realpath`, write a
+`tempfile.NamedTemporaryFile(dir=<resolved target's dir>, delete=False)`, and
+`os.replace` it over the resolved target with the original mode from
+`os.stat` (`0o644` for a new file). Port fence classification from
+`ClaudeMdImport` in `punt-labs/biff`; its `register()` appends, so implement
+TED-13's sorted insertion rather than copying that method. Test LF, CRLF and lone-CR hosts, a
 dangling fence, a symlinked host and two parallel writers.
 
 ## PY-TED-2: Implement scoped enable and disable
@@ -98,5 +100,6 @@ local paths in `settings.json` and an unignored `settings.local.json`.
 
 Engine operations take the caller identity as a required argument and derive
 store keys and ownership from it; no operation accepts an `owner=` override.
-Register install, uninstall, service, `enable`, `disable` and `doctor` only
-as CLI commands, never as MCP tools or REST routes.
+Register install, uninstall and service supervision only as CLI commands,
+never as MCP tools or REST routes; `enable` and `disable` reach MCP only as the
+TED-35 enablement tool.
