@@ -132,9 +132,11 @@ before writing, the tool confirms each target is ignored and untracked
 6. Shared scope only: optionally register repo-scoped hooks, config and a
    tool-owned CI workflow (see 2.8). Personal scope registers none.
 
-Personal `enable` in a repo where the shared marker is present writes only the
-personal marker and deletes `.punt-labs/local/<tool>/disabled` if present; the
-shared guide, import and grants already cover the checkout.
+Personal `enable` in a repo where the shared marker is present writes no
+personal marker, guide, import or grant; it only deletes
+`.punt-labs/local/<tool>/disabled` if present, because the shared guide, import
+and grants already cover the checkout. If the project later disables the tool,
+the checkout is off until the person runs personal `enable` again.
 
 **`disable`**:
 
@@ -419,9 +421,9 @@ marker exists, and the shared or the personal `enabled` marker does:
 
 | State | Shared `enabled` | Personal `enabled` | `opt-out` | Personal `disabled` | On |
 |-------|------------------|--------------------|-----------|---------------------|----|
-| Enabled for the project | present | any | absent | absent | yes |
+| Enabled for the project | present | absent | absent | absent | yes |
 | Enabled for one person | absent | present | absent | absent | yes |
-| Off for one person | present | any | absent | present | no |
+| Off for one person | present | absent | absent | present | no |
 | Dormant (disabled) | absent | absent | absent | n/a | no |
 | Opted out | absent | absent | present | n/a | no |
 | Absent (no directory) | absent | absent | absent | n/a | no |
@@ -567,7 +569,8 @@ only punt's own.
   exactly one `@.punt-labs/<tool>/CLAUDE.md` line; for every tool whose shared
   marker is absent (dormant, opted out or gone), that line is absent. The same
   holds for the personal marker and `@.punt-labs/local/<tool>/CLAUDE.md` in
-  `CLAUDE.local.md`, when that file exists. This is the load-bearing
+  `CLAUDE.local.md`; a personal marker with no `CLAUDE.local.md` fails as a
+  missing import. This is the load-bearing
   biconditional: enabled ⟺ import line, in each scope.
 - **Opt-out is exclusive.** No tool has both `opt-out` and the shared `enabled`
   marker, and an opted-out tool has no shared import line and no shared grants.
@@ -620,7 +623,9 @@ Repos enabled before the scope split stay enabled: every marker, guide, import
 and grant that `enable` wrote was shared scope, so none moves. What changes:
 
 - A bare `<tool> enable` now means personal scope. Scripts, playbooks and docs
-  that enable a tool for a team pass `--scope project`.
+  that enable a tool for a team pass `--scope project`. Until a tool ships
+  `--scope`, its bare `enable` is still shared scope and its README says so;
+  each tool's adoption is tracked in Linear (PL-1758 and its related issues).
 - A loop that runs `<tool> enable` for every tool at agent start is removed, or
   limited to repos where the tool is already enabled, and honors the opt-out;
   under the no-op rule (§2.3) it then changes no bytes.
@@ -755,7 +760,11 @@ relay is the reference.
   A dormant tool writes nothing, sends nothing over the network and starts
   nothing.
 - **Hooks do nothing.** Every hook passes the §2.7 gate before any work and
-  exits 0 with no output and no side effect when the tool is off.
+  exits 0 with no output and no side effect when the tool is off. The one
+  exception is a hook that serves the tool's user-scope machinery rather than
+  the repo — biff's caller stamp, which its MCP tools need in any repo — and it
+  may run only if it writes nothing in the checkout, sends nothing over the
+  network and prints nothing.
 - **Daemons ignore the repo.** A background service does not watch, index,
   sync, capture, poll, deliver or register anything for an off checkout. A
   service already serving the repo drops it at its next event or check, and
