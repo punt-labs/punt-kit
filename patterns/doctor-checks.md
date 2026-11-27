@@ -30,7 +30,7 @@ Implement a `doctor` subcommand that runs a checklist of diagnostic checks, each
 - Ethos extension: `session_context` present in identity ext file (see
   [Ethos Extension Setup](ethos-ext-setup.md))
 - CLAUDE.md: import line present iff enabled (see
-  [tool-enable-disable.md § 2.11](../standards/tool-enable-disable.md#211-what-punt-audit-checks))
+  [tool-enable-disable.md § 2.11](../standards/tool-enable-disable.md#211-what-punt-repo-audit-checks))
 - Daemon health: process running, port responding (see
   [Daemon + Proxy MCP](daemon-proxy-mcp.md))
 

@@ -3,11 +3,18 @@
 **Updated:** 2026-11-27
 
 How Punt Labs tools discover, communicate with, and coordinate each other
-inside a Claude Code session — without hard dependencies.
+inside a Claude Code session — without hard dependencies. Each obligation is
+an `INT-<n>` clause; implementation rules live in
+[Python](../lang-rules/python/python-enablement.md) and
+[Go](../lang-rules/go/go-enablement.md).
 
 ---
 
 ## Design Principle
+
+### INT-1: Degrade gracefully when a peer is absent
+
+**Applies to:** python, go
 
 **No tool requires another tool.** Every integration degrades gracefully. A
 tool that finds a peer enriches its behavior; a tool that doesn't find a peer
@@ -28,8 +35,13 @@ tool enriches its behavior when a peer is present but works fine alone. It does
 | Peer integration | langlearn discovers langlearn-tts via MCP | This standard — tool degrades gracefully without it |
 | Dev tool | z-spec used during koch-trainer development | Neither — a methodology choice, not a runtime relationship |
 
-**Rule**: If removing the dependency causes a Python `ImportError`, it's a hard
-dependency (manage with pyproject.toml). If removing it causes degraded but
+### INT-2: Manage hard dependencies in the package manifest
+
+**Applies to:** python, go
+
+**Rule**: If removing the dependency causes an import or build failure (a
+Python `ImportError`, a Go build error), it's a hard dependency (manage it in
+the package manifest: `pyproject.toml`, `go.mod`). If removing it causes degraded but
 functional behavior, it's a peer integration (document in this standard). If
 removing it only affects development process, it's a dev tool and doesn't
 belong here.
@@ -46,6 +58,10 @@ Any tool — ours or external — can participate at these layers using only fil
 conventions, shell commands, and Claude Code hooks. No shared library required.
 
 #### L0: Presence
+
+##### INT-3: Detect a peer from its effective-state markers
+
+**Applies to:** python, go
 
 Detect whether a peer tool is on in the current checkout from its markers at
 the git root: the shared `.punt-labs/<tool>/enabled` or the personal
@@ -84,11 +100,15 @@ Legacy settings preservation and destinations: [PLD-10](punt-labs-dir.md#pld-10-
 
 #### L1: Discovery
 
+##### INT-4: Discover peers lazily, once per session
+
+**Applies to:** python, go
+
 Verify that a peer tool's **executable or MCP server** is available at runtime.
 
 | Method | When to use |
 |--------|-------------|
-| `shutil.which("biff")` | CLI tools on PATH |
+| `shutil.which("biff")` (Python), `exec.LookPath("biff")` (Go) | CLI tools on PATH |
 | MCP tool list inspection | MCP servers in the current session |
 
 **Rule**: L1 checks must be lazy (run at first use, not at import time) and
@@ -106,6 +126,10 @@ Examples:
 - Biff suggests `/wall` on PR creation (biff's own messaging reaction).
 - Quarry ingests URLs on WebFetch completion (quarry's own capture behavior).
 
+##### INT-5: React to a peer's operation additively
+
+**Applies to:** python, go
+
 **Rule 1: Additive only — for peer / cross-tool reactions.** When a hook
 reacts to *another* tool's operation (the L2 case here: vox reacting to a
 PR creation, quarry reacting to a WebFetch), it may enrich output or trigger
@@ -116,9 +140,13 @@ This scopes to peer reactions only. A hook acting on **its own tool's**
 operation legitimately blocks or mutates it — a mutation/stamping `PreToolUse`
 hook (e.g. the caller-identity stamper that rewrites its own server's
 arguments via `updatedInput`, [mcp-caller-identity.md § 3.1](mcp-caller-identity.md#31-the-hook),
-or a workflow gate that denies an edit, [hooks.md](hooks.md#mutation-hooks-blocking))
+or a workflow gate that denies an edit, [HOOK-13](hooks.md#hook-13-use-blocking-hooks-sparingly))
 is doing exactly that by design. The "additive only" rule does not reach a
 tool governing its own calls.
+
+##### INT-6: Own your reaction to shared events
+
+**Applies to:** python, go
 
 **Rule 2: Each building block owns its reaction to shared events.**
 When multiple plugins hook the same Claude Code event (e.g., PostToolUse
@@ -128,6 +156,10 @@ each other for generic lifecycle events — this prevents duplicate
 reactions. See [hooks.md § 9](hooks.md#9-cross-tool-hook-coordination)
 and [DES-009](../DESIGN.md#des-009-building-block-hook-ownership).
 
+##### INT-7: Put domain-specific reactions in the consumer
+
+**Applies to:** python, go
+
 **Rule 3: Consumers add domain-specific context.** Only the domain
 owner has the context for meaningful content. Z-spec narrating model
 check results via vox is consumer behavior. Quarry rendering search
@@ -135,6 +167,10 @@ results via lux is consumer behavior. The Linear issues for this
 work carry the consumer project's repo label, not the building block.
 
 #### L3: State
+
+##### INT-8: Read peer state files and never write them
+
+**Applies to:** python, go
 
 Read peer state through **shared file schemas** with well-known formats.
 
@@ -162,6 +198,10 @@ These layers are available only to Punt Labs tools that share the
 
 #### L4: Library
 
+##### INT-9: Keep the integration library free of peer code
+
+**Applies to:** python
+
 A shared Python module providing typed access to peer discovery and state.
 
 ```python
@@ -176,6 +216,10 @@ presence markers (L0), checks binaries (L1), and parses state files (L3) —
 nothing more. This keeps the dependency graph flat.
 
 #### L5: Orchestration
+
+##### INT-10: Declare the degradation path of every orchestration
+
+**Applies to:** python, go
 
 Agent-level coordination where tools chain prompts, share context, or
 delegate subtasks to each other.
@@ -222,7 +266,9 @@ identity's extension directory:
 - **Generic mechanism.** Adding a new tool's session context requires zero
   ethos code changes. Any extension can provide session context.
 
-### Anti-patterns
+### INT-11: Couple to extension file formats and write only your own
+
+**Applies to:** python, go
 
 - **Hardcoding another tool's extension schema** in your source code.
   Couple to the file format (YAML keys), not to the tool's Python/Go
@@ -239,40 +285,15 @@ for install requirements. Pattern:
 
 ## Integration Matrix
 
-Each peer integration should be documented with the layers it uses and how the
-consumer degrades when the building block is absent. All arrows are
+### INT-12: Record every peer integration before implementing it
+
+**Applies to:** python, go
+
+Each peer integration is recorded, before implementation, with the layers
+it uses and how the consumer degrades when the building block is absent: in
+the consumer's DESIGN.md and in the
+[integration matrix](../docs/integration-matrix.md). All arrows are
 **unidirectional** — building blocks never know about their consumers.
-
-### Building Blocks
-
-Pure building blocks with no upstream awareness:
-
-| Block | Role | Consumers |
-|-------|------|-----------|
-| **vox** | TTS engine — audio output | biff (peer), langlearn-tts (hard), dungeon (peer) |
-| **lux** | Visual output surface — tables, charts, UI | prfaq (peer), quarry (peer), langlearn (peer), dungeon (peer) |
-| **langlearn-types** | Shared interfaces for langlearn family | langlearn (hard), langlearn-tts (hard), langlearn-anki (hard), langlearn-imagegen (hard) |
-| **ethos** | Identity + session context delivery | quarry (peer), biff (peer), vox (peer) |
-
-### Peer Integrations
-
-| Integration | Layers | Degradation |
-|-------------|--------|-------------|
-| biff → vox | L0, L2, L3 | Without vox: messages are text-only. Hook-triggered vocalizations (L2) are the primary path; 1–2 use cases may also use MCP tools (L1). |
-| prfaq → quarry | L1, L5 | Without quarry: researcher agent falls back to web search. |
-| prfaq → lux | L1 | Without lux: text-only output in terminal. With lux: visual PR/FAQ dashboard, meeting displays. |
-| quarry → lux | L1 | Without lux: CLI text output. With lux: interactive data explorer, search result tables. Could replace quarry-menubar. |
-| quarry-menubar → quarry | L1 | Without quarry: menubar app has no backend. REST API discovery over HTTP. Lux may replace this surface. |
-| langlearn → langlearn-tts | L1 | Without langlearn-tts: no audio output. Flashcards, spaced repetition, and other non-audio functions still work. Langlearn is an LLM outer loop — it discovers langlearn-tts MCP tools at runtime. |
-| langlearn → lux | L1 | Without lux: no visual flashcard display. Audio and SRS still work. |
-| dungeon → lux | L1 | Without lux: text adventure in terminal. With lux: visual game UI, maps, inventory. |
-| dungeon → vox | L1 | Without vox: silent gameplay. With vox: narration, sound effects, ambient audio. |
-| quarry → ethos | L2 | Without ethos: no agent-scoped memory, no session context injection. Quarry still works for project-scoped search. |
-| biff → ethos | L2 | Without ethos: no identity-aware messaging. Biff still works with anonymous sessions. |
-| vox → ethos | L2 | Without ethos: no voice personality persistence. Vox still works with default voice. |
-
-**Rule**: New cross-tool integrations must add a row to this matrix (in the
-relevant project's DESIGN.md or this standard) before implementation.
 
 ---
 
@@ -292,7 +313,9 @@ while git cannot — so we carry both sides. Internal tools that ship in
 separate repos face the same constraint at the code boundary. The code
 structure should still reflect the integration boundary in all cases.
 
-### How to model it
+### INT-13: Separate bundled integration code from core logic
+
+**Applies to:** python, go
 
 1. **Separate the integration code.** Put git-specific logic in a
    module like `git_integration.py` or a `connectors/git.py` directory,
@@ -333,17 +356,8 @@ When it's separated, you get:
 - Tests that can exercise core logic without a git repo
 - A pattern for adding more integrations (beadle, Linear, etc.)
 
-### Candidates for bundled integrations
-
-| Tool | What we read | What it enables |
-|------|-------------|----------------|
-| **git** | `.git/`, status, log, `.gitignore` | Commit-aware sync, branch detection, ignore filtering |
-| **beadle** | Email via MCP | Email memory, auto-ingest correspondence |
-| **gh** | GitHub API via CLI | PR context, issue linking, review integration |
-
-Each of these follows the same pattern: the integration ships with
-quarry (or whichever consumer), is structurally separated from core
-logic, and degrades gracefully when the external tool is absent.
+The integrations a consumer bundles are listed in the
+[integration matrix](../docs/integration-matrix.md#candidates-for-bundled-integrations).
 
 ---
 
@@ -366,6 +380,10 @@ logic, and degrades gracefully when the external tool is absent.
 ---
 
 ## Cross-repo rename trains
+
+### INT-14: Rename a consumed surface as one coordinated train
+
+**Applies to:** python, go
 
 When a building block renames a public surface (MCP tool, CLI verb,
 REST route, library entry point) its consumers depend on, the rename

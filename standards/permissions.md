@@ -4,7 +4,9 @@
 
 Rules for Claude Code permission configuration across all Punt Labs projects.
 Defines what agents can do automatically, what requires approval, and what is
-blocked entirely.
+blocked entirely. Each obligation is a `PERM-<n>` clause; implementation rules
+live in [Python](../lang-rules/python/python-enablement.md) and
+[Go](../lang-rules/go/go-enablement.md).
 
 ---
 
@@ -18,11 +20,17 @@ Claude Code uses a three-tier permission model:
 | **Prompt** | User approves or rejects each time | Default for anything not in allow or deny |
 | **Deny** | Blocked entirely, cannot be approved | `settings.json` (checked in) |
 
+### PERM-1: Promote a rule to allow or deny deliberately
+
+**Applies to:** python, go
+
 The prompt tier is the safety net. Most tools fall here by default. Only
 promote to allow when the tool is safe for autonomous use; only promote to
 deny when the tool should never run, even with explicit approval.
 
-### Path-scoped rule syntax
+### PERM-2: Write path rules only as `Read(path)` or `Edit(path)`
+
+**Applies to:** python, go
 
 Claude Code matches path-scoped rules under exactly two tool names:
 
@@ -50,6 +58,10 @@ This applies to `settings.local.json` exactly as it does to `settings.json` —
 the warning names whichever file the rule came from.
 
 `punt repo audit` reports unmatched rules in both files. `punt repo init` removes them.
+
+### PERM-3: Remove dead rules and never rewrite them
+
+**Applies to:** python, go
 
 **Cleanup drops dead rules; it never rewrites them.** Every rule it removes
 was already inert, so effective permissions are identical before and after.
@@ -102,9 +114,13 @@ and only a human can say whether it was supposed to.
 
 ## 2. File Split
 
+### PERM-4: Split grants between the shared and the local settings file
+
+**Applies to:** python, go
+
 Permissions are split across two files based on portability:
 
-### `settings.json` (checked in)
+#### `settings.json` (checked in)
 
 Portable permissions that apply to all collaborators on the project.
 
@@ -118,7 +134,7 @@ Contains:
 - Deny rules
 - Project-specific entries (hooks, env, additionalDirectories)
 
-### `settings.local.json` (gitignored)
+#### `settings.local.json` (gitignored)
 
 Machine-specific permissions tied to local paths or OS-specific tools.
 
@@ -137,11 +153,12 @@ Contains:
 
 ## 3. Required Allow Rules
 
-### MCP wildcards
+### PERM-5: Grant each MCP wildcard from the baseline or one tool's `enable`
+
+**Applies to:** python, go
 
 **A permission value lives in exactly one place**: either in this section's
-baseline, or in exactly one tool's `<tool> enable` set (section 6, principle
-3). Never both. The baseline holds only values no `enable` owns.
+baseline, or in exactly one tool's `<tool> enable` set ([PERM-14](#perm-14-grant-every-surface-on-enable-with-ask-carve-outs)). Never both. The baseline holds only values no `enable` owns.
 
 The baseline MCP wildcard is one entry:
 
@@ -177,7 +194,9 @@ removes the same value, under the same partition as every other `enable`
 entry. A server registered by hand that no tool owns stays in
 `settings.local.json`.
 
-### Build tools
+### PERM-6: Allow the baseline build tools, never `bash` or `sed`
+
+**Applies to:** python, go
 
 Every project must allow these generic Bash commands:
 
@@ -227,7 +246,9 @@ standards tool must run unprompted from the first scaffold; `punt enable`'s
 set (tool-enable-disable.md § 2.10) is its guide import and its
 `Skill(punt:*)` rule, never a CLI rule, so the value is in one place.
 
-### Skills
+### PERM-7: Grant skills only by plugin-scoped name
+
+**Applies to:** python, go
 
 `Skill()` rules **are** enforced. `SkillTool` has its own permission layer,
 documented in Claude Code's skills architecture:
@@ -259,11 +280,12 @@ any skill name with no `plugin:` prefix — is non-conformant.
 **`Skill()` rules are owned by the plugin's `enable`, not the baseline.** Each
 plugin's `enable` set allows `Skill(<plugin>:*)` and puts an exact
 `Skill(<plugin>:<cmd>)` in `permissions.ask` for each command whose
-`allowed-tools` would make an unsafe operation run unprompted (section 6,
-principle 3). `punt repo init` never seeds a `Skill()` rule; a repo carries one
+`allowed-tools` would make an unsafe operation run unprompted ([PERM-14](#perm-14-grant-every-surface-on-enable-with-ask-carve-outs)). `punt repo init` never seeds a `Skill()` rule; a repo carries one
 only because that tool is enabled there, and `<tool> disable` removes it.
 
-### Cross-project file access
+### PERM-8: Allow bare `Read`, `Edit` and `Write`
+
+**Applies to:** python, go
 
 Every project must allow file operations across the monorepo workspace.
 Sub-agents do not honor path-scoped `Read(path)`/`Edit(path)` rules from
@@ -292,7 +314,9 @@ the default tier is `prompt`, which auto-denies in non-interactive background
 sub-agent execution. Path-scoped forms (`Read(../**)`) are not honored by
 sub-agents in testing. The bare form is the only reliable unblock.
 
-### WebFetch domains
+### PERM-9: Allow the research WebFetch domains
+
+**Applies to:** python, go
 
 Allow research domains relevant to org work:
 
@@ -311,10 +335,14 @@ Allow research domains relevant to org work:
 
 ## 4. Required Deny Rules
 
+### PERM-10: Deny the required operations in every project
+
+**Applies to:** python, go
+
 Every project must deny these operations. Deny rules block the operation
 entirely — the user cannot approve them even if prompted.
 
-### Destructive operations
+#### Destructive operations
 
 | Rule | Rationale |
 |------|-----------|
@@ -322,14 +350,14 @@ entirely — the user cannot approve them even if prompted.
 | `Bash(rm -rf ~:*)` | Home directory destruction |
 | `Bash(dd:*)` | Raw disk writes, can overwrite devices |
 
-### Privilege escalation
+#### Privilege escalation
 
 | Rule | Rationale |
 |------|-----------|
 | `Bash(sudo:*)` | No agent should have root access |
 | `Bash(su:*)` | No agent should switch users |
 
-### Network access
+#### Network access
 
 | Rule | Rationale |
 |------|-----------|
@@ -345,7 +373,7 @@ entirely — the user cannot approve them even if prompted.
 | `Bash(telnet:*)` | Plain text remote access |
 | `Bash(socat:*)` | Advanced network proxy |
 
-### Secrets and environment
+#### Secrets and environment
 
 | Rule | Rationale |
 |------|-----------|
@@ -357,7 +385,7 @@ entirely — the user cannot approve them even if prompted.
 `Write(.env)` rule to add, and adding one produces a startup warning without
 adding any protection (section 1).
 
-### Secret disclosure
+#### Secret disclosure
 
 | Rule | Rationale |
 |------|-----------|
@@ -395,7 +423,7 @@ exact deny wins over a prefix allow, so `Bash(export)` is refused even though
 `Bash(export:*)` is allowed. As a side effect, `declare` and `typeset` with any
 flag (`-a`, `-i`, `-x` and so on) are refused too.
 
-### Known limitations
+#### Known limitations
 
 Deny rules match on command prefixes. Flags placed after arguments (e.g.,
 `git push origin main --force`) may not match a deny rule for
@@ -414,17 +442,21 @@ determined read.
 
 ## 5. Local-Only Permissions
 
+### PERM-11: Keep machine-specific grants in `settings.local.json`
+
+**Applies to:** python, go
+
 The `settings.local.json` file contains machine-specific entries. These are
 not checked in because they contain local paths or OS-specific commands.
 
-### Temporary file access
+#### Temporary file access
 
 ```json
 "Read(/tmp/**)",
 "Edit(/tmp/**)"
 ```
 
-### OS-specific commands
+#### OS-specific commands
 
 | OS | Rule |
 |----|------|
@@ -439,83 +471,119 @@ the plugin's own repo. They still need permissions so commands, skills, and
 hooks run without constant approval prompts. Where those rules land is the
 whole of this section.
 
-### Principles
+### PERM-12: Grant plugin rules at repo scope, never globally
 
-1. **Repo scope, never global.** Every rule — Bash, `Edit`, web, and MCP tool
-   wildcards alike — goes in the repo's `.claude/settings.json`. No Punt Labs
-   tool, installer, or hook writes permission rules to
-   `~/.claude/settings.json`. A plugin has no business granting itself standing
-   permission in projects the user never pointed it at.
+**Applies to:** python, go
 
-2. **No hook writes settings.** The SessionStart hook deploys commands; it
-   never edits a settings file — see [plugins.md](plugins.md).
+Principle 1. **Repo scope, never global.** Every rule — Bash, `Edit`, web, and MCP tool
+wildcards alike — goes in the repo's `.claude/settings.json`. No Punt Labs
+tool, installer, or hook writes permission rules to
+`~/.claude/settings.json`. A plugin has no business granting itself standing
+permission in projects the user never pointed it at.
 
-3. **The user asks for it.** The installer installs; it does not grant. Rules
-   land when the user runs `<tool> enable` (or the plugin's own permissions
-   command) inside a repo. Installing a plugin is not consent to edit files in
-   every repo on the machine. `enable` grants every surface the tool ships, and
-   `disable` removes exactly the set `enable` computes, by exact value-match.
-   A permission value lives in exactly one place: either in the section 3
-   baseline or in exactly one tool's `enable` set, never both. That partition
-   is what makes exact value-match safe: a value in section 3 is never in an
-   `enable` set, so `disable` cannot remove a baseline rule, and a flat string
-   array needs no author attribution. The set is a broad allow per surface plus exact
-   `ask` carve-outs, so a new safe command, MCP tool or skill works the day it
-   ships, with no fleet-wide rule update:
+### PERM-13: Never write settings from a hook
 
-   | Surface | `permissions.allow` | `permissions.ask` |
-   |---------|---------------------|-------------------|
-   | CLI | `Bash(<cli>:*)` | `Bash(<cli> <verb>:*)` for each unsafe verb |
-   | MCP | the server's tool wildcard as Claude Code names it (`mcp__plugin_<plugin>_<server>__*` for a plugin-bundled server, `mcp__<name>__*` for one the tool registers natively; see [MCP wildcards](#mcp-wildcards)) | `mcp__<prefix>__<tool>` for each unsafe tool |
-   | Skills | `Skill(<plugin>:*)` | `Skill(<plugin>:<cmd>)` for each unsafe command |
+**Applies to:** python, go
 
-   An operation is unsafe, and gets an `ask` rule, when it fails principle 4
-   or [plugins.md](plugins.md) principle 4: it installs or uninstalls
-   software, changes permissions or enablement (`enable`, `disable`, an MCP
-   tool that runs either), manages credentials or services, deletes data the
-   user cannot recover from the repo, or sends something outside the machine
-   that the tool's own checks do not gate. Claude Code evaluates deny, then
-   ask, then allow, so an exact `ask` rule prompts even though the broad
-   allow also matches. Carve-outs use `ask`, never `deny`: a deny cannot be
-   approved, so it would break the command for the user too. The verb rules
-   match only a verb right after the CLI name (`Bash(<cli> <verb>:*)`); a
-   global option placed before the verb (`<cli> --quiet uninstall`) runs under
-   the broad allow and is deliberately not carved out. The `ask` tier is a
-   safety net, not a security boundary — it catches the common form of a
-   mutating verb so a person sees it, nothing more. No catch-all flag rule
-   (`Bash(<cli> -*)`): it would also prompt on read-only `--version` and
-   `--help`, which is noise, not safety (see [DESIGN.md](../DESIGN.md) DES-039).
-   A tool
-   with no CLI or no MCP server adds no rule for it, and no `-dev` rule is
-   ever granted — the dev plugin only exists in a maintainer's checkout.
-   Claude Code matches `Skill(<plugin>:*)` as a plain prefix of the skill
-   name, colon excluded (verified in Claude Code 2.1.325), so in a
-   maintainer's checkout it also allows the `<plugin>-dev:` commands, and the
-   exact `ask` rules do not cover their `-dev` twins. That is accepted: a
-   maintainer loading their own dev plugin is not the user this rule protects.
-   `punt` is the one tool whose `enable` set carries no CLI rule:
-   `Bash(punt:*)` is section 3 baseline (see Build tools).
+Principle 2. **No hook writes settings.** The SessionStart hook deploys commands; it
+never edits a settings file — see [plugins.md](plugins.md).
 
-4. **Least privilege.** Only allow operations the plugin performs
-   autonomously. Risky, rare, or destructive operations stay at the prompt
-   tier.
+### PERM-14: Grant every surface on `enable`, with `ask` carve-outs
 
-5. **Pattern specificity.** Patterns must be narrow enough not to reach
-   unrelated files — use the plugin name or a domain term (`*prfaq*.tex`, not
-   `*.tex`).
+**Applies to:** python, go
 
-6. **`Edit(path)` for every path rule.** `Write(path)` matches nothing and
-   warns at every session start (section 1).
+Principle 3. **The user asks for it.** The installer installs; it does not grant. Rules
+land when the user runs `<tool> enable` (or the plugin's own permissions
+command) inside a repo. Installing a plugin is not consent to edit files in
+every repo on the machine. `enable` grants every surface the tool ships, and
+`disable` removes exactly the set `enable` computes, by exact value-match.
+A permission value lives in exactly one place: either in the section 3
+baseline or in exactly one tool's `enable` set, never both. That partition
+is what makes exact value-match safe: a value in section 3 is never in an
+`enable` set, so `disable` cannot remove a baseline rule, and a flat string
+array needs no author attribution. The set is a broad allow per surface plus exact
+`ask` carve-outs, so a new safe command, MCP tool or skill works the day it
+ships, with no fleet-wide rule update:
 
-7. **Idempotent.** Running the command twice must not duplicate rules,
-   reorder existing user permissions, or rewrite the file when there is
-   nothing to add. A no-op that dirties the user's git status is not a no-op.
+| Surface | `permissions.allow` | `permissions.ask` |
+|---------|---------------------|-------------------|
+| CLI | `Bash(<cli>:*)` | `Bash(<cli> <verb>:*)` for each unsafe verb |
+| MCP | the server's tool wildcard as Claude Code names it (`mcp__plugin_<plugin>_<server>__*` for a plugin-bundled server, `mcp__<name>__*` for one the tool registers natively; see [PERM-5](#perm-5-grant-each-mcp-wildcard-from-the-baseline-or-one-tools-enable)) | `mcp__<prefix>__<tool>` for each unsafe tool |
+| Skills | `Skill(<plugin>:*)` | `Skill(<plugin>:<cmd>)` for each unsafe command |
 
-8. **Order preservation.** New rules append; existing order is preserved.
+An operation is unsafe, and gets an `ask` rule, when it fails PERM-15
+or [plugins.md](plugins.md) principle 4: it installs or uninstalls
+software, changes permissions or enablement (`enable`, `disable`, an MCP
+tool that runs either), manages credentials or services, deletes data the
+user cannot recover from the repo, or sends something outside the machine
+that the tool's own checks do not gate. Claude Code evaluates deny, then
+ask, then allow, so an exact `ask` rule prompts even though the broad
+allow also matches. Carve-outs use `ask`, never `deny`: a deny cannot be
+approved, so it would break the command for the user too. The verb rules
+match only a verb right after the CLI name (`Bash(<cli> <verb>:*)`); a
+global option placed before the verb (`<cli> --quiet uninstall`) runs under
+the broad allow and is deliberately not carved out. The `ask` tier is a
+safety net, not a security boundary — it catches the common form of a
+mutating verb so a person sees it, nothing more. No catch-all flag rule
+(`Bash(<cli> -*)`): it would also prompt on read-only `--version` and
+`--help`, which is noise, not safety (see [DESIGN.md](../DESIGN.md) DES-039).
+A tool
+with no CLI or no MCP server adds no rule for it, and no `-dev` rule is
+ever granted — the dev plugin only exists in a maintainer's checkout.
+Claude Code matches `Skill(<plugin>:*)` as a plain prefix of the skill
+name, colon excluded (verified in Claude Code 2.1.325), so in a
+maintainer's checkout it also allows the `<plugin>-dev:` commands, and the
+exact `ask` rules do not cover their `-dev` twins. That is accepted: a
+maintainer loading their own dev plugin is not the user this rule protects.
+`punt` is the one tool whose `enable` set carries no CLI rule:
+`Bash(punt:*)` is section 3 baseline (see Build tools).
 
-9. **Reversible.** Every rule the plugin adds must be removable by the plugin
-   (`<tool> disable`, or the permissions command's `--remove`). The file is
-   version-controlled, so the write is atomic rather than backed up.
+### PERM-15: Allow only what the plugin does autonomously
+
+**Applies to:** python, go
+
+Principle 4. **Least privilege.** Only allow operations the plugin performs
+autonomously. Risky, rare, or destructive operations stay at the prompt
+tier.
+
+### PERM-16: Keep plugin patterns narrow
+
+**Applies to:** python, go
+
+Principle 5. **Pattern specificity.** Patterns must be narrow enough not to reach
+unrelated files — use the plugin name or a domain term (`*prfaq*.tex`, not
+`*.tex`).
+
+### PERM-17: Use `Edit(path)` for every path rule
+
+**Applies to:** python, go
+
+Principle 6. **`Edit(path)` for every path rule.** `Write(path)` matches nothing and
+warns at every session start (section 1).
+
+### PERM-18: Make permission writes idempotent
+
+**Applies to:** python, go
+
+Principle 7. **Idempotent.** Running the command twice must not duplicate rules,
+reorder existing user permissions, or rewrite the file when there is
+nothing to add. A no-op that dirties the user's git status is not a no-op.
+
+### PERM-19: Insert new rules in sorted position
+
+**Applies to:** python, go
+
+Principle 8. **Sorted insertion.** Each new rule goes in its sorted position
+([TED-25](tool-enable-disable.md#ted-25-edit-settings-files-additively-under-the-shared-lock));
+existing entries never move.
+
+### PERM-20: Make every added rule removable
+
+**Applies to:** python, go
+
+Principle 9. **Reversible.** Every rule the plugin adds must be removable by the plugin
+(`<tool> disable`, or the permissions command's `--remove`). The file is
+version-controlled, so the write is atomic rather than backed up.
 
 Precedent: prfaq shipped installer-injected global rules in v1.5.0 and carried
 them to v1.6.1. The result was a plugin holding standing permission to edit
@@ -565,7 +633,9 @@ edit form and it already covers the Write tool.
 "Write(*prfaq*.tex)"
 ```
 
-### Implementation pattern
+### PERM-21: Refuse global and invalid settings files
+
+**Applies to:** python, go
 
 The plugin ships one script, invoked by one command
 (`/<plugin>:permissions`), operating on one file:
@@ -637,7 +707,9 @@ else
 fi
 ```
 
-### Uninstall cleanup
+### PERM-22: Remove only the rules the plugin added
+
+**Applies to:** python, go
 
 The uninstaller removes only the rules the plugin added, from the project file
 it added them to:
@@ -690,7 +762,9 @@ Run `punt repo audit` to check compliance. The audit checks:
 `punt repo init` removes unmatched path rules from both `settings.json` and
 `settings.local.json`, per the table in section 1.
 
-### Adding new deny rules
+### PERM-23: Apply a new deny rule to every project at once
+
+**Applies to:** python, go
 
 When adding a new deny rule, apply it to all projects simultaneously. Use a
 script to merge the rule into every project's `settings.json` to maintain
@@ -706,6 +780,10 @@ behalf of one client, is allowed to see or change on behalf of
 another. That scoping is the engine's responsibility, not the
 permission file's.
 
+### PERM-24: Scope every engine write to the caller
+
+**Applies to:** python, go
+
 **Every write is caller-scoped.** An engine operation invoked over
 any client surface (CLI, MCP, REST, library) composes its store keys,
 its ownership fields, and its authorization checks on the caller's
@@ -715,6 +793,10 @@ any client surface accepts an `owner=` override letting the caller
 act on someone else's state. The engine has no admin path exposed on
 a client surface.
 
+### PERM-25: Scope every content read to the caller
+
+**Applies to:** python, go
+
 **Every content read is caller-scoped.** Operations that return
 content another client owns (`scene inspect`, `event ls`, `error ls`,
 `screenshot` — the lux vocabulary; the equivalent in any other
@@ -723,6 +805,10 @@ caller owns. Metadata that is not confidential (peer-discovery lists,
 identity strings, connect times) can stay visible to all callers;
 content cannot.
 
+### PERM-26: Treat CLI identity flags as identity, never privilege
+
+**Applies to:** python, go
+
 **The CLI's per-invocation identity flags are not privilege
 elevation.** A CLI that accepts `--as/--kind/--name/--repo/--agent`
 (lux) or an equivalent identity-composition flag lets one invocation
@@ -730,6 +816,10 @@ elevation.** A CLI that accepts `--as/--kind/--name/--repo/--agent`
 any operation the declared identity would not have; it declares a
 fresh identity for the invocation. This is how tests exercise
 multi-client scenarios without a superuser path.
+
+### PERM-27: Keep admin verbs on the CLI
+
+**Applies to:** python, go
 
 **Admin verbs stay on the CLI.** Process supervision, install,
 uninstall, enable, disable, and doctor never appear on MCP, REST, or

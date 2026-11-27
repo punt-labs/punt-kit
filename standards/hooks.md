@@ -11,7 +11,9 @@ This standard consolidates hook guidance from
 dispatch) and [plugins.md § Required Hooks](plugins.md#required-hooks)
 (SessionStart and output suppression). Those sections remain as
 cross-references; this document is the authoritative reference for hook
-implementation.
+implementation. Each obligation is a `HOOK-<n>` clause; implementation rules
+live in [Python](../lang-rules/python/python-hooks.md) and
+[Go](../lang-rules/go/go-enablement.md).
 
 ---
 
@@ -104,12 +106,16 @@ Layer 2 extensions for each tool:
 
 ## 2. Architecture
 
-### Principle
+### HOOK-1: Keep business logic out of hooks
+
+**Applies to:** python, go
 
 Hooks are plumbing, not product. They integrate the CLI with Claude
 Code's lifecycle but do not contain business logic themselves.
 
-### Three-layer dispatch
+### HOOK-2: Dispatch through registration, gate and handler
+
+**Applies to:** python, go
 
 ```text
 hooks.json          →  Shell script (thin gate)  →  CLI handler (business logic)
@@ -120,8 +126,8 @@ hooks.json          →  Shell script (thin gate)  →  CLI handler (business lo
    scripts to run. Lives in `hooks/hooks.json` in the plugin root.
 2. **Shell script** — Checks preconditions (config exists, tool
    enabled) and delegates to the CLI. Fails silently on error.
-3. **CLI handler** — Pure Python function in `hooks.py` that takes
-   structured input and returns structured output. Testable in
+3. **CLI handler** — Pure function in the tool's hook module (`hooks.py`
+   in Python) that takes structured input and returns structured output. Testable in
    isolation.
 
 ### File layout
@@ -144,6 +150,10 @@ src/<package>/
 
 ## 3. Shell Script Pattern
 
+### HOOK-3: Keep shell gates thin
+
+**Applies to:** python, go
+
 Shell scripts are thin gates. They check preconditions and delegate to
 the CLI. They must never contain business logic.
 
@@ -158,15 +168,18 @@ P="$REPO_ROOT/.punt-labs"
 <tool> hook <event> 2>/dev/null || true
 ```
 
-### Rules
-
 - **Stdin passthrough**: Claude Code sends JSON on stdin. The shell
   script must pass it to the CLI handler (implicit via pipe or
   redirect). Do not consume stdin in the shell script.
 - **Fail silently**: Use `2>/dev/null || true` for observation hooks.
   Only mutation hooks (PreToolUse denials) should propagate failures.
 - **No business logic**: If the script is longer than 10 lines of
-  non-boilerplate, the logic belongs in Python.
+  non-boilerplate, the logic belongs in the handler.
+
+### HOOK-4: Gate every hook on effective state
+
+**Applies to:** python, go
+
 - **Config gate**: Check the tool's effective state before dispatching:
   exit 0 when the opt-out (`.punt-labs/<tool>/opt-out`) or the personal
   `disabled` marker exists, or when neither the shared
@@ -175,51 +188,50 @@ P="$REPO_ROOT/.punt-labs"
   repo-root dotfile — are the enabled signal
   ([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)).
 
-### Critical: wire shell scripts to Python handlers
+### HOOK-5: Wire every gate to its handler
 
-Every shell script that delegates to a Python handler **must actually
-call the handler**. This is the most common hook bug across Punt Labs
-projects. Pattern:
+**Applies to:** python, go
+
+Every shell script that delegates to a handler **must actually
+call the handler**. Pattern:
 
 ```bash
-# CORRECT: shell invokes Python handler
+# CORRECT: shell invokes the handler
 <tool> hook <event> < /dev/stdin
 
-# WRONG: shell only does setup, Python handler is dead code
-# (This exact bug was found in quarry — 3 handlers implemented but never called)
+# WRONG: shell only does setup, the handler is dead code
 ```
 
-**Audit checklist**: For every `handle_<event>()` function in
-`hooks.py`, verify that a shell script in `hooks/` calls it via the CLI
+**Audit checklist**: For every handler function (`handle_<event>()`
+in Python), verify that a shell script in `hooks/` calls it via the CLI
 dispatcher. Dead handlers are invisible bugs.
 
 ---
 
-## 4. Python Handler Pattern
+## 4. Handler Pattern
 
-Business logic lives in `hooks.py` as pure functions.
+### HOOK-6: Write handlers as pure functions that never crash
 
-```python
-def handle_post_bash(data: dict[str, Any]) -> str | None:
-    """PostToolUse Bash — detect events and return context."""
-    command = data.get("tool_input", {}).get("command", "")
-    # ... classify, detect, return additionalContext or None
-```
+**Applies to:** python, go
 
-### Rules
+Business logic lives in the tool's hook module as pure functions
+([PY-HOOK-1](../lang-rules/python/python-hooks.md) gives the Python form).
 
-- **Pure functions**: Take a dict, return a string (context to inject)
-  or None. No side effects except logging and config file writes.
-- **Structured input**: Read from the `data` dict passed by the CLI
-  dispatcher, not from stdin directly.
-- **Graceful degradation**: Catch all exceptions. Return `{}` or `None`
-  on error. Never crash — a crashing hook blocks Claude Code.
-- **Testable**: Every handler should have unit tests that pass dicts
-  and assert on return values.
+- **Pure functions**: Take the parsed event payload and return the context
+  to inject, or nothing. No side effects except logging and config file
+  writes.
+- **Structured input**: Read from the payload the dispatcher passes, not
+  from stdin directly.
+- **Graceful degradation**: Catch all errors and return an empty result.
+  Never crash — a crashing hook blocks Claude Code.
+- **Testable**: Every handler has unit tests that pass payloads and assert
+  on return values.
 
-### Blocking vs non-blocking handlers
+### HOOK-7: Block only when the return value drives a decision
 
-The Python handler should only do synchronous (blocking) work when the
+**Applies to:** python, go
+
+The handler should only do synchronous (blocking) work when the
 **return value drives a decision**. If the hook's output is a side
 effect (audio playback, file write, background ingest), do the work
 asynchronously and return immediately.
@@ -235,124 +247,41 @@ asynchronously and return immediately.
 (Claude Code) needs the return value to proceed. Public command success
 semantics are defined separately in [CLI-18](cli.md#cli-18-define-what-success-means-for-each-command).
 
-For side-effect handlers, use `subprocess.Popen` (not `subprocess.run`)
-or a daemon thread to avoid blocking the hook timeout:
-
-```python
-# CORRECT: fire-and-forget for side effects
-subprocess.Popen(
-    ["vox", "play", chime_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-)
-return None  # Don't wait
-
-# WRONG: blocks until audio finishes playing
-subprocess.run(["vox", "play", chime_path])
-return None  # Waited for nothing
-```
+For side-effect handlers, start the side effect as a detached process or
+background task and return without waiting for it
+([PY-HOOK-2](../lang-rules/python/python-hooks.md)).
 
 The hook registration's `async` flag controls whether **Claude Code**
 waits for the shell script to exit. The handler's blocking behavior
-controls whether the **Python process** waits for side effects. Both
+controls whether the **handler process** waits for side effects. Both
 should be non-blocking when the return value isn't needed — they are
 independent knobs at different layers of the dispatch chain.
 
-### Reading stdin: non-blocking reads only
+### HOOK-8: Never block waiting for stdin to close
 
-**Never call `sys.stdin.read()` in a hook handler.** It blocks until
-EOF. Claude Code pipes JSON to hook subprocesses but does not always
-close the pipe promptly — causing an indefinite hang that freezes
-session resume/startup.
+**Applies to:** python, go
 
-Use `os.read()` in a `select` loop with short timeouts:
+Claude Code pipes JSON to hook subprocesses but does not always close the
+pipe promptly, so a read that waits for EOF hangs indefinitely and freezes
+session resume and startup. A hook reads stdin with a short readiness
+timeout and takes the bytes available; it never does a blocking
+read-to-EOF.
 
-```python
-import json
-import os
-import select
-import sys
+A handler that does not use the payload does not read stdin at all:
+draining it "to avoid pipe backpressure" is the exact vector for the hang.
 
+Every project that reads stdin in hooks has a regression test that writes a
+payload, leaves the pipe open without EOF, and asserts the read returns
+promptly. Python: [PY-HOOK-3](../lang-rules/python/python-hooks.md).
 
-def _read_hook_input() -> dict[str, object]:
-    """Read JSON hook payload from stdin (non-blocking).
+### HOOK-9: Expose handlers as hidden `hook` subcommands
 
-    Uses select + os.read to avoid blocking forever when
-    Claude Code does not close the stdin pipe.  See biff DES-027.
-    """
-    try:
-        fd = sys.stdin.fileno()
-        # Wait up to 100ms for initial data.
-        if not select.select([fd], [], [], 0.1)[0]:
-            return {}
-        # Read available data in chunks (50ms inter-chunk timeout).
-        chunks: list[bytes] = []
-        while True:
-            chunk = os.read(fd, 65536)
-            if not chunk:  # EOF
-                break
-            chunks.append(chunk)
-            if not select.select([fd], [], [], 0.05)[0]:
-                break
-        raw = b"".join(chunks).decode()
-        if not raw.strip():
-            return {}
-        data = json.loads(raw)
-        if isinstance(data, dict):
-            return data
-        return {}
-    except (json.JSONDecodeError, OSError, ValueError):
-        return {}
-```
+**Applies to:** python, go
 
-**Why not `sys.stdin.read()`?** `select()` returning readable only
-guarantees one byte won't block — it does not guarantee EOF has
-arrived. `sys.stdin.read()` after `select()` still blocks when data
-exists without EOF. `os.read(fd, 65536)` returns available bytes
-immediately without waiting for EOF.
-
-**Handlers that don't use stdin data should not read it.** The
-"consume stdin to avoid pipe backpressure" pattern is the exact
-vector for this hang. Remove `_read_hook_input()` calls from
-handlers that discard the result.
-
-**Test the non-blocking behavior.** Every project that reads stdin
-in hooks must have a regression test for the open-pipe-no-EOF case:
-
-```python
-def test_no_eof_does_not_hang(self) -> None:
-    """Stdin with data but no EOF returns data without blocking."""
-    r_fd, w_fd = os.pipe()
-    os.write(w_fd, b'{"event": "resume"}\n')
-    # Do NOT close w_fd — simulates open pipe without EOF.
-    r = os.fdopen(r_fd, "r")
-    with patch("sys.stdin", r):
-        result = _read_hook_input()
-    r.close()
-    os.close(w_fd)
-    assert result == {"event": "resume"}
-```
-
-### CLI dispatcher
-
-The CLI exposes hook handlers as hidden subcommands:
-
-```python
-hook_app = typer.Typer(hidden=True)
-
-
-@hook_app.command("post-bash")
-def cc_post_bash() -> None:
-    """PostToolUse Bash — internal hook dispatcher."""
-    data = _read_hook_input()  # non-blocking, never sys.stdin.read()
-    result = handle_post_bash(data)
-    if result:
-        print(json.dumps(result))
-
-
-app.add_typer(hook_app, name="hook")
-```
-
-Pattern: `<tool> hook <event>` — "Commands called by hooks. These are
-internal and not for direct user use." (from cli.md Layer 3)
+The CLI exposes hook handlers as hidden subcommands, `<tool> hook <event>`:
+commands called by hooks, internal and not for direct use
+([CLI-10](cli.md#cli-10-keep-hook-dispatch-internal)). Python:
+[PY-HOOK-4](../lang-rules/python/python-hooks.md).
 
 ---
 
@@ -365,7 +294,9 @@ specification. Repo-scoped hook deposit and removal via `<tool> enable` /
 exact value-match — follow
 [tool-enable-disable.md § 2.8](tool-enable-disable.md#28-hooks-and-config).
 
-### SessionStart
+### HOOK-10: Set up at SessionStart without editing settings
+
+**Applies to:** python, go
 
 Setup hook that runs on every session start. Must:
 
@@ -380,7 +311,9 @@ An engine that holds per-session state also opens its engine session here,
 and its PreToolUse hook stamps the caller on its MCP tool calls:
 [mcp-caller-identity.md § 3–4](mcp-caller-identity.md).
 
-### PostToolUse (output suppression)
+### HOOK-11: Format the output of every MCP tool
+
+**Applies to:** python, go
 
 Every MCP tool must have a corresponding handler in
 `suppress-output.sh` that formats output for the UI panel. Missing
@@ -393,10 +326,11 @@ Pattern: two-channel display — compact summary in
 
 ## 6. Hook Event Patterns
 
-Patterns observed across biff, vox, and quarry, verified by Z
-specification model checking.
+Patterns verified by Z specification model checking.
 
-### Observation hooks (non-blocking)
+### HOOK-12: Never block from an observation hook
+
+**Applies to:** python, go
 
 These hooks observe state and inject context. They must never block.
 
@@ -412,7 +346,9 @@ These hooks observe state and inject context. They must never block.
 | SessionEnd | * | Cleanup | Clear session markers, reset signals |
 | Notification | permission\|idle | Alert user | Chime or spoken notification |
 
-### Mutation hooks (blocking)
+### HOOK-13: Use blocking hooks sparingly
+
+**Applies to:** python, go
 
 These hooks can prevent an action. Use sparingly — blocking hooks that
 fail can deadlock Claude Code.
@@ -422,7 +358,9 @@ fail can deadlock Claude Code.
 | PreToolUse | Edit\|Write | Workflow gate | Require plan + issue before file edits |
 | Stop | * | Decision-block | Speak summary before allowing stop |
 
-### Decision-block pattern (Stop hook)
+### HOOK-14: Block a Stop hook at most once per turn
+
+**Applies to:** python, go
 
 The Stop hook can block Claude from stopping to perform a side effect
 (e.g., speaking a summary). This creates a re-entrant cycle:
@@ -451,7 +389,9 @@ def handle_stop(data: dict) -> dict | None:
     return {"decision": "block", "reason": "♪ Speaking..."}
 ```
 
-### Workflow gate pattern (PreToolUse hook)
+### HOOK-15: Give every denial a `permissionDecisionReason`
+
+**Applies to:** python, go
 
 A PreToolUse hook can deny a tool call based on workflow state. The
 denied tool call's reason is injected into context, and Claude
@@ -489,6 +429,10 @@ error or warning when the wrong field name is used. See biff DES-026.
 
 ## 7. Fail-Open vs Fail-Closed
 
+### HOOK-16: Fail open on observation and closed on mutation
+
+**Applies to:** python, go
+
 Following the principle from cli.md:
 
 | Hook type | Failure behavior | Rationale |
@@ -509,13 +453,17 @@ the session itself when SessionStart has not.
 
 ## 8. Hook Registration
 
+### HOOK-17: Register plugin hooks in hooks.json and repo hooks through enable
+
+**Applies to:** python, go
+
 Plugins register hooks globally via `hooks.json` (below). Genuinely
 repo-scoped hooks are registered by `<tool> enable` as additive
 `<repo>/.claude/settings.json` entries and removed by `disable` via exact
 value-match —
 [tool-enable-disable.md § 2.8](tool-enable-disable.md#28-hooks-and-config).
 
-### hooks.json structure
+#### hooks.json structure
 
 ```json
 {
@@ -536,7 +484,9 @@ value-match —
 }
 ```
 
-### Matcher regex for dev/prod
+### HOOK-18: Match both dev and prod plugin namespaces
+
+**Applies to:** python, go
 
 Matchers must cover both dev and prod plugin namespaces:
 
@@ -544,7 +494,9 @@ Matchers must cover both dev and prod plugin namespaces:
 "matcher": "mcp__plugin_<tool>(-dev)?_<server>__.*"
 ```
 
-### Async hooks
+### HOOK-19: Mark fire-and-forget hooks async
+
+**Applies to:** python, go
 
 Use `"async": true` for fire-and-forget hooks that should not block
 the event:
@@ -560,7 +512,9 @@ the event:
 Hooks from different plugins fire independently on the same event.
 Order is not guaranteed. Design accordingly.
 
-### Hook independence
+### HOOK-20: Keep hooks independent of one another
+
+**Applies to:** python, go
 
 - **No dependency between hooks**: Biff's SessionStart and quarry's
   SessionStart must not depend on each other's output.
@@ -570,7 +524,9 @@ Order is not guaranteed. Design accordingly.
   integration protocol (L3: state files). See
   [integration.md](integration.md).
 
-### Building block hook ownership (DES-009)
+### HOOK-21: Let each building block own its reaction (DES-009)
+
+**Applies to:** python, go
 
 When multiple plugins hook the same Claude Code event, each building
 block owns its own sensory reaction. See
@@ -605,9 +561,11 @@ Vox and lux have different activation semantics:
 
 ## 10. Testing
 
-### Unit tests
+### HOOK-22: Unit-test every handler
 
-Every `handle_<event>()` function should have unit tests:
+**Applies to:** python, go
+
+Every handler has unit tests. In Python, for `handle_<event>()`:
 
 ```python
 def test_handle_post_bash_detects_test_pass():
@@ -619,11 +577,15 @@ def test_handle_post_bash_detects_test_pass():
     assert "tests-pass" in result
 ```
 
-### Integration tests
+### HOOK-23: Test the full dispatch chain
+
+**Applies to:** python, go
 
 Test the full dispatch chain: JSON stdin → shell script → CLI → handler → JSON stdout.
 
-### Z specification verification
+### HOOK-24: Model-check hooks with complex state
+
+**Applies to:** python, go
 
 For hooks with complex state (decision-block, workflow gates), maintain
 a Z specification that models the hook's state machine. Use probcli to
@@ -643,181 +605,37 @@ Reference implementations:
 
 ## 11. Common Bugs
 
-Patterns found during Z specification audits across biff, vox, and
-quarry:
+Failure modes the clauses above prevent:
 
-| Bug | Project | Root Cause | Prevention |
-|-----|---------|------------|------------|
-| **Dead handler** | quarry | Python handler implemented but shell script never calls it | Audit: for every `handle_*()`, verify a shell script invokes it |
-| **Missing registration** | quarry | Handler exists, hooks.json has no entry for the event | Audit: for every handler, verify hooks.json has the event + matcher |
-| **Ghost states** | z-spec base | Free type declares states no operation uses | Model check: unreachable states cause deadlocks in ProB |
-| **Unbounded accumulation** | vox | Vibe signals grow without pruning | Bound collections in the Z spec; implement pruning in handler |
-| **Invariant too strict** | z-spec vox | `stopHookActive` cleared on wrong phase boundary | Model check catches immediately; fix invariant, re-verify |
-| **Context overflow deadlock** | z-spec base | Context append exceeds maxContext bound | Truncate on append: `(1 ↟ max) ◁ (context ⌢ ⟨chunk⟩)` |
-| **Silent deny reason** | biff | PreToolUse deny used `"reason"` instead of `"permissionDecisionReason"` — field silently ignored, agent sees generic denial with no self-correction instructions | Always use `"permissionDecisionReason"` (see § 6 workflow gate pattern). Test that deny output contains the field. See biff DES-026. |
-| **Stdin hang on session resume** | biff, vox, lux | `sys.stdin.read()` blocks until EOF. Claude Code does not always close the stdin pipe for SessionStart resume/compact events, causing hooks to hang forever and freezing session load. Also triggered by "consume stdin" drain calls in handlers that discard the data. | Never use `sys.stdin.read()` in hooks. Use `os.read()` + `select` loop (see § 4). Remove stdin reads from handlers that don't use the data. Test with open-pipe-no-EOF regression test. See biff DES-027. |
-| **Import tax on hook startup** | biff, quarry | Hook shell script calls `<tool> hook <event>`, routing through `__main__.py` and importing the full application (nats, pydantic, lancedb, etc.) before dispatching to a handler that only needs stdlib. Cold start: 1.5–4.7s per Python hook invocation. | Use a lightweight entry point (§ 12). Extract stdlib-only helpers. Make `__init__.py` lazy. See biff DES-028. |
+| Bug | Root Cause | Prevention |
+|-----|------------|------------|
+| **Dead handler** | Python handler implemented but shell script never calls it | Audit: for every `handle_*()`, verify a shell script invokes it |
+| **Missing registration** | Handler exists, hooks.json has no entry for the event | Audit: for every handler, verify hooks.json has the event + matcher |
+| **Ghost states** | Free type declares states no operation uses | Model check: unreachable states cause deadlocks in ProB |
+| **Unbounded accumulation** | Vibe signals grow without pruning | Bound collections in the Z spec; implement pruning in handler |
+| **Invariant too strict** | `stopHookActive` cleared on wrong phase boundary | Model check catches immediately; fix invariant, re-verify |
+| **Context overflow deadlock** | Context append exceeds maxContext bound | Truncate on append: `(1 ↟ max) ◁ (context ⌢ ⟨chunk⟩)` |
+| **Silent deny reason** | PreToolUse deny used `"reason"` instead of `"permissionDecisionReason"` — field silently ignored, agent sees generic denial with no self-correction instructions | Always use `"permissionDecisionReason"` (HOOK-15). Test that deny output contains the field. See biff DES-026. |
+| **Stdin hang on session resume** | `sys.stdin.read()` blocks until EOF. Claude Code does not always close the stdin pipe for SessionStart resume/compact events, causing hooks to hang forever and freezing session load. Also triggered by "consume stdin" drain calls in handlers that discard the data. | Never use `sys.stdin.read()` in hooks. Read with a readiness timeout (HOOK-8). Remove stdin reads from handlers that don't use the data. Test with open-pipe-no-EOF regression test. See biff DES-027. |
+| **Import tax on hook startup** | Hook shell script calls `<tool> hook <event>`, routing through `__main__.py` and importing the full application (nats, pydantic, lancedb, etc.) before dispatching to a handler that only needs stdlib. Cold start: 1.5–4.7s per Python hook invocation. | Load only what the handler needs (HOOK-25). Extract stdlib-only helpers. Make `__init__.py` lazy. See biff DES-028. |
 
 ---
 
 ## 12. Hook Startup Performance
 
-Hooks are the hottest path in a Claude Code plugin. SessionStart hooks
-fire on every session open and every resume. When multiple plugins each
-spawn Python processes that import heavy dependency trees, the serial
-cost can exceed 15 seconds — observed as the "Resuming conversation..."
-hang.
+### HOOK-25: Load only what the handler needs on the hook path
 
-### The import tax anti-pattern
+**Applies to:** python, go
 
-The standard three-layer dispatch (§ 2) routes hook calls through the
-CLI entry point:
-
-```text
-hooks/<event>.sh  →  <tool> hook <event>  →  __main__.py  →  hooks.py handler
-```
-
-This path imports the full application before dispatching to the hook
-handler. If the application imports nats, pydantic, lancedb,
-onnxruntime, or similar heavy libraries, every hook invocation pays
-that cost — even when the handler only needs `pathlib` and `json`.
-
-Three layers compound the tax:
-
-1. **Eager `__init__.py`** — `import <package>` triggers top-level
-   imports of every submodule. A `from <package>.hook import handler`
-   pulls in the entire dependency tree.
-2. **Entry point routing through `__main__.py`** — The CLI framework
-   (typer), server, commands, and configuration all load before the
-   hook subcommand is reached.
-3. **Handler imports from heavy modules** — Even with lazy imports in
-   the handler, importing from a module that itself imports heavy
-   libraries triggers the full chain. Pure-stdlib functions trapped
-   inside heavy modules are the root cause.
-
-### Measured impact (biff, M2 MacBook Air)
-
-| Path | Cold Start |
-|------|-----------|
-| `biff hook claude-code session-start` (old) | 3.7s |
-| `biff-hook claude-code session-start` (new) | 0.29s |
-| **Ratio** | **13×** |
-
-### The fix: three corresponding layers
-
-Each layer of the import tax has a corresponding fix:
-
-**1. `_stdlib.py` — Extract stdlib-only functions**
-
-Move pure-stdlib functions out of modules that import third-party
-libraries. The handler imports from `_stdlib` instead of from the
-heavy module. The heavy module also imports from `_stdlib` to avoid
-duplication.
-
-```python
-# src/<package>/_stdlib.py
-"""Stdlib-only helpers for lightweight hook paths.
-
-Every function in this module MUST use only stdlib imports.
-Adding a third-party import here defeats the entire purpose.
-"""
-
-from __future__ import annotations
-
-import json
-import subprocess
-from pathlib import Path
-
-
-def find_git_root() -> Path | None:
-    """Walk up from cwd to find .git directory."""
-    ...
-
-
-def is_enabled(repo_root: Path) -> bool:
-    """Check if tool is enabled in this repo."""
-    ...
-```
-
-**Invariant**: `_stdlib.py` uses only stdlib imports. This is the
-module's reason for existing. The docstring must state this explicitly.
-
-**2. Lightweight entry point — bypass `__main__.py`**
-
-Register a separate console script that parses `sys.argv` directly
-and dispatches to handler functions without loading the CLI framework:
-
-```toml
-# pyproject.toml
-[project.scripts]
-<tool> = "<package>.__main__:app"         # Full CLI
-<tool>-hook = "<package>._hook_entry:main" # Lightweight hook path
-```
-
-```python
-# src/<package>/_hook_entry.py
-"""Lightweight hook entry point — bypasses __main__.py entirely."""
-import sys
-
-def main() -> None:
-    args = sys.argv[1:]
-    if len(args) < 2:
-        from <package>.__main__ import app
-        app()
-        return
-    layer, event = args[0], args[1]
-    # Dispatch to handler functions (lazy import per handler)
-    ...
-```
-
-Update all hook shell scripts: `<tool> hook` → `<tool>-hook`.
-
-**3. Lazy `__init__.py` — PEP 562 `__getattr__`**
-
-Replace eager imports with deferred loading so that importing a
-lightweight submodule does not trigger the full package:
-
-```python
-# src/<package>/__init__.py
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from <package>.models import MyModel  # static analysis only
-
-def __getattr__(name: str) -> object:
-    if name == "MyModel":
-        from <package>.models import MyModel
-        globals()["MyModel"] = MyModel
-        return MyModel
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-```
-
-### When to apply
-
-Not every project needs the full fix. Apply based on measured cost:
-
-| Condition | Action |
-|-----------|--------|
-| SessionStart handler spawns Python, cold start > 1s | Apply all three layers |
-| SessionStart handler spawns Python, cold start 0.3–1s | Consider `_stdlib` extraction only |
-| SessionStart is pure shell or cold start < 0.3s | No action needed |
-| Git hooks (`.git/hooks/`) use the CLI | Leave as-is — not on the latency-critical path |
-
-### Cross-product findings (2026-03-11)
-
-| Product | SessionStart Python? | Cold Start | Status |
-|---------|---------------------|-----------|--------|
-| **biff** | Yes (2 hooks) | 4.7s → 0.43s | **Fixed** (v1.3.4, DES-028) |
-| **quarry** | Yes (1 hook) | 1.47s | **Needs fix** — same pattern |
-| **vox** | No (pure shell) | 0.1s | Already optimal |
-| **lux** | Yes (lightweight) | 0.3s | Already near floor |
-
-Quarry's `handle_session_start` imports `pydantic_settings` (1.9s),
-`lancedb` (16.2s), `onnxruntime`, `pymupdf`, and `bs4` at module
-level — but only needs `sqlite3` + `subprocess`. The same three-layer
-fix applies.
+Hooks are the hottest path in a Claude Code plugin. SessionStart hooks fire
+on every session open and every resume; when several plugins each start a
+process that loads a heavy dependency tree, the serial cost can exceed 15
+seconds — the "Resuming conversation..." hang. A hook's entry path loads
+only what its handler needs, not the full application, and SessionStart
+cold start, measured with the installed binary rather than a development
+runner, stays under one second. Git hooks (`.git/hooks/`) are off the
+latency-critical path and may use the full CLI. Python:
+[PY-HOOK-5](../lang-rules/python/python-hooks.md).
 
 ---
 
@@ -836,7 +654,7 @@ For every Punt Labs plugin, verify:
 - [ ] **Async flag set** on fire-and-forget hooks
 - [ ] **Two-channel display** for all MCP tool output
 - [ ] **No `sys.stdin.read()` in hook handlers** — use `os.read()` +
-  `select` loop (see § 4). Grep for `stdin.read` in hooks.py.
+  `select` loop (HOOK-8, PY-HOOK-3). Grep for `stdin.read` in hooks.py.
 - [ ] **No unnecessary stdin reads** — handlers that discard the data
   must not call `_read_hook_input()`
 - [ ] **Open-pipe regression test exists** — test that reads stdin
@@ -844,7 +662,7 @@ For every Punt Labs plugin, verify:
 - [ ] **Quality gates include hook tests** (`make test` runs handler
   unit tests)
 - [ ] **SessionStart cold start < 1s** — measure with installed binary,
-  not `uv run`. If > 1s, apply the three-layer fix (§ 12).
+  not `uv run`. If > 1s, apply HOOK-25 (Python: PY-HOOK-5).
 - [ ] **`_stdlib.py` has no third-party imports** — if the module
   exists, grep for non-stdlib imports. Any third-party import defeats
   the purpose.
