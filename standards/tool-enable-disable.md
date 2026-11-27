@@ -159,8 +159,11 @@ the checkout is off until the person runs personal `enable` again. Personal
 6. `disable --scope project --opt-out` also writes the committed opt-out
    (§2.7), in the same change that removes the shared marker.
 
-**`enable --refresh`** is the one path that rewrites a deposited guide: it
-replaces the scope's guide with the installed tool's bytes when they differ.
+**`enable --refresh`** is the one path that rewrites a deposited guide or any
+other vendored file: it makes the scope's vendored zone match the installed
+tool, writing each shipped file whose bytes differ and removing vendored files
+the installed tool no longer ships. Config and local-convention zones are
+untouched.
 In shared scope it is the reviewable upgrade, one diff in one PR. It never runs
 as a side effect of SessionStart, `install`, `uninstall`, a plugin update or
 any other verb (§2.5).
