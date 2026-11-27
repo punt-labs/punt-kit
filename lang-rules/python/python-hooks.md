@@ -140,12 +140,16 @@ def cc_post_bash() -> None:
     data = _read_hook_input()  # non-blocking, never sys.stdin.read()
     context = handle_post_bash(data)
     if context:
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PostToolUse",
-                "additionalContext": context,
-            }
-        }))
+        print(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PostToolUse",
+                        "additionalContext": context,
+                    }
+                }
+            )
+        )
 
 
 app.add_typer(hook_app, name="hook")
