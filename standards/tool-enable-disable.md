@@ -641,7 +641,10 @@ and grant that `enable` wrote was shared scope, so none moves. What changes:
 
 - A bare `<tool> enable` now means personal scope. Scripts, playbooks and docs
   that enable a tool for a team pass `--scope project`. A tool that does not
-  offer `--scope`, its bare `enable` is shared scope, and its README says so.
+  offer `--scope` keeps bare `enable` as shared scope, and its README says so.
+  A tool makes local its bare default only in the same release that its
+  callers' rollout scripts (`biff-enable-rollout.sh`, `tool-all.sh` and the
+  like) pass `--scope project`.
 - A loop that runs `<tool> enable` for every tool at agent start is removed, or
   limited to repos where the tool is already enabled, and honors the opt-out;
   under the no-op rule (§2.3) it then changes no bytes.
@@ -777,10 +780,11 @@ relay is the reference.
   nothing.
 - **Hooks do nothing.** Every hook passes the §2.7 gate before any work and
   exits 0 with no output and no side effect when the tool is off. The one
-  exception is a hook that serves the tool's user-scope machinery rather than
-  the repo — biff's caller stamp, which its MCP tools need in any repo — and it
-  may run only if it writes nothing in the checkout, sends nothing over the
-  network and prints nothing.
+  exception is a hook that records session identity for the tool's explicit
+  commands (biff's caller stamp is the instance). It may run while off only if
+  it writes nothing in the checkout, writes nothing that persists past the
+  session or that another repo reads, sends nothing over the network and
+  prints nothing.
 - **Daemons ignore the repo.** A background service does not watch, index,
   sync, capture, poll, deliver or register anything for an off checkout. A
   service already serving the repo drops it at its next event or check, and
