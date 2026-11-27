@@ -162,8 +162,11 @@ the checkout is off until the person runs personal `enable` again. Personal
 **`enable --refresh`** is the one path that rewrites a deposited guide or any
 other vendored file: it makes the scope's vendored zone match the installed
 tool, writing each shipped file whose bytes differ and removing vendored files
-the installed tool no longer ships. Config and local-convention zones are
-untouched.
+the installed tool no longer ships. Every replacement and removal follows
+[punt-labs-dir.md PLD-9](punt-labs-dir.md#pld-9-replacement-requires-verifiable-ownership):
+a path the previous inventory does not list aborts the refresh with no writes.
+In personal scope each write and each removal also passes the ignored-and-
+untracked check above. Config and local-convention zones are untouched.
 In shared scope it is the reviewable upgrade, one diff in one PR. It never runs
 as a side effect of SessionStart, `install`, `uninstall`, a plugin update or
 any other verb (§2.5).
