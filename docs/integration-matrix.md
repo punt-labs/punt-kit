@@ -1,9 +1,10 @@
 # Integration Matrix
 
 The peer integrations among Punt Labs tools, the layers each uses and how the
-consumer degrades without its building block. Recording a row here before
-implementation is required by
-[INT-12](../standards/integration.md#int-12-record-every-peer-integration-before-implementing-it).
+consumer degrades without its building block.
+[INT-12](../standards/integration.md#int-12-record-every-peer-integration-before-implementing-it)
+requires recording an integration before implementing it, here or in the
+consumer's DESIGN.md.
 
 All arrows are **unidirectional** — building blocks never know about their
 consumers.
