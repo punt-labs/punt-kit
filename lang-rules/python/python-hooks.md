@@ -301,8 +301,9 @@ Not every project needs the full fix. Apply based on measured cost:
 
 Shell gates under `hooks/` test effective state and then call
 `<tool> hook <event>` (or the `<tool>-hook` entry point of PY-HOOK-5); for
-every `handle_<event>()` in `hooks.py`, a gate calls it and `hooks.json`
-registers its event and matcher. Return deny decisions as
+every `handle_<event>()` in `hooks.py`, a gate calls it and its event and
+matcher are registered: in `hooks.json` for a plugin hook, or by shared-scope
+`enable` for a repo-scoped hook (HOOK-17). Return deny decisions as
 `hookSpecificOutput` with `permissionDecisionReason`, and check
 `data.get("stop_hook_active")` before a Stop hook blocks. Unit tests call
 each `handle_<event>()` with a `dict` and assert on the result; integration

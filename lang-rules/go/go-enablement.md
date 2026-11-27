@@ -98,7 +98,9 @@ hang the hook itself. Test with a pipe whose writer stays open.
 
 **Implements:** HOOK-3, HOOK-4, HOOK-5, HOOK-10, HOOK-11, HOOK-12, HOOK-13, HOOK-14, HOOK-15, HOOK-16, HOOK-17, HOOK-18, HOOK-19, HOOK-20, HOOK-21, HOOK-22, HOOK-23, HOOK-24 · **Gate:** `review` (hook evaluator)
 
-Every handler has a shell gate that calls it and a `hooks.json` entry. Deny
+Every handler has a shell gate that calls it and a registration: a
+`hooks.json` entry for a plugin hook, or a shared-scope `enable` entry for a
+repo-scoped hook (HOOK-17). Deny
 with `permissionDecisionReason`, and check `stop_hook_active` before a Stop
 hook blocks. Table-test each handler, and test the gate end to end with JSON
 on stdin.
