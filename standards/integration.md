@@ -57,11 +57,11 @@ Integration is organized into six layers across two tiers.
 Any tool — ours or external — can participate at these layers using only file
 conventions, shell commands, and Claude Code hooks. No shared library required.
 
-#### L0: Presence
-
-##### INT-3: Detect a peer from its effective-state markers
+### INT-3: Detect a peer from its effective-state markers
 
 **Applies to:** python, go
+
+#### L0: Presence
 
 Detect whether a peer tool is on in the current checkout from its markers at
 the git root: the shared `.punt-labs/<tool>/enabled` or the personal
@@ -98,11 +98,11 @@ def has_biff() -> bool:
 
 Legacy settings preservation and destinations: [PLD-10](punt-labs-dir.md#pld-10-relocation-preserves-meaning-and-content) and [compatibility reference](../docs/repo-layout.md#compatibility-inventory).
 
-#### L1: Discovery
-
-##### INT-4: Discover peers lazily, once per session
+### INT-4: Discover peers lazily, once per session
 
 **Applies to:** python, go
+
+#### L1: Discovery
 
 Verify that a peer tool's **executable or MCP server** is available at runtime.
 
@@ -115,6 +115,10 @@ Verify that a peer tool's **executable or MCP server** is available at runtime.
 cached for the session. A missing binary at L1 means the integration is
 unavailable — do not prompt the user to install anything.
 
+### INT-5: React to a peer's operation additively
+
+**Applies to:** python, go
+
 #### L2: Events
 
 React to peer activity through **Claude Code hooks** — specifically
@@ -125,10 +129,6 @@ Examples:
 - Vox speaks a summary on Stop (vox's own behavior, not triggered by a consumer).
 - Biff suggests `/wall` on PR creation (biff's own messaging reaction).
 - Quarry ingests URLs on WebFetch completion (quarry's own capture behavior).
-
-##### INT-5: React to a peer's operation additively
-
-**Applies to:** python, go
 
 **Rule 1: Additive only — for peer / cross-tool reactions.** When a hook
 reacts to *another* tool's operation (the L2 case here: vox reacting to a
@@ -144,7 +144,7 @@ or a workflow gate that denies an edit, [HOOK-13](hooks.md#hook-13-use-blocking-
 is doing exactly that by design. The "additive only" rule does not reach a
 tool governing its own calls.
 
-##### INT-6: Own your reaction to shared events
+### INT-6: Own your reaction to shared events
 
 **Applies to:** python, go
 
@@ -156,7 +156,7 @@ each other for generic lifecycle events — this prevents duplicate
 reactions. See [hooks.md § 9](hooks.md#9-cross-tool-hook-coordination)
 and [DES-009](../DESIGN.md#des-009-building-block-hook-ownership).
 
-##### INT-7: Put domain-specific reactions in the consumer
+### INT-7: Put domain-specific reactions in the consumer
 
 **Applies to:** python, go
 
@@ -166,11 +166,11 @@ check results via vox is consumer behavior. Quarry rendering search
 results via lux is consumer behavior. The Linear issues for this
 work carry the consumer project's repo label, not the building block.
 
-#### L3: State
-
-##### INT-8: Read peer state files and never write them
+### INT-8: Read peer state files and never write them
 
 **Applies to:** python, go
+
+#### L3: State
 
 Read peer state through **shared file schemas** with well-known formats.
 
@@ -196,11 +196,11 @@ versioned.
 These layers are available only to Punt Labs tools that share the
 `punt_kit.integration` library.
 
-#### L4: Library
-
-##### INT-9: Keep the integration library free of peer code
+### INT-9: Keep the integration library free of peer code
 
 **Applies to:** python
+
+#### L4: Library
 
 A shared Python module providing typed access to peer discovery and state.
 
@@ -215,11 +215,11 @@ state = read_peer_state("vox")  # Typed accessor for vox config
 presence markers (L0), checks binaries (L1), and parses state files (L3) —
 nothing more. This keeps the dependency graph flat.
 
-#### L5: Orchestration
-
-##### INT-10: Declare the degradation path of every orchestration
+### INT-10: Declare the degradation path of every orchestration
 
 **Applies to:** python, go
+
+#### L5: Orchestration
 
 Agent-level coordination where tools chain prompts, share context, or
 delegate subtasks to each other.
