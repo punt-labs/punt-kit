@@ -1,6 +1,6 @@
 # Permissions Standards
 
-**Updated:** 2026-11-26
+**Updated:** 2026-11-27
 
 Rules for Claude Code permission configuration across all Punt Labs projects.
 Defines what agents can do automatically, what requires approval, and what is
@@ -612,18 +612,21 @@ if command -v jq >/dev/null 2>&1; then
     exit 1
   fi
 
-  # Count new rules, then merge (order-preserving, idempotent)
+  # Count new rules, then insert each in sorted position (idempotent;
+  # existing entries never move; no write when nothing is missing)
   ADDED=$(jq -r --argjson new "$PLUGIN_RULES" '
     (.permissions.allow // []) as $orig
     | [$new[] | select(. as $r | $orig | index($r) | not)] | length
   ' "$SETTINGS_FILE")
 
-  jq --argjson new "$PLUGIN_RULES" '
-    (.permissions.allow // []) as $orig
-    | .permissions.allow = $orig + [$new[] | select(. as $r | $orig | index($r) | not)]
-  ' "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
-
   if [ "$ADDED" -gt 0 ]; then
+    jq --argjson new "$PLUGIN_RULES" '
+      (.permissions.allow // []) as $orig
+      | .permissions.allow = reduce
+          ($new[] | select(. as $r | $orig | index($r) | not)) as $r
+          ($orig; (map(. > $r) | index(true)) as $i
+            | if $i == null then . + [$r] else .[:$i] + [$r] + .[$i:] end)
+    ' "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
     echo "$ADDED permission rule(s) added to $SETTINGS_FILE"
   else
     echo "permissions already configured"
@@ -648,9 +651,11 @@ jq --argjson remove "$PLUGIN_RULES" '
 ### Repo-scoped `enable` / `disable`
 
 The same mechanics serve `<tool> enable` / `disable` for repo-scoped hook,
-config, and permission entries — written to `<repo>/.claude/settings.json`,
-not `~/.claude/settings.json`. The tool computes a deterministic entry set;
-`enable` adds the missing members with the order-preserving merge above;
+config, and permission entries — written to `<repo>/.claude/settings.json` by
+shared-scope `enable --scope project`, and to `<repo>/.claude/settings.local.json`
+by personal-scope `enable`; never to `~/.claude/settings.json`. The tool
+computes a deterministic entry set;
+`enable` adds the missing members in sorted position with the insertion above;
 `disable` recomputes the identical set and removes those exact values with the
 removal pattern above. **Exact value-match is the contract — no tag schema.**
 Because the file is shared across tools and invocations, the read-modify-write

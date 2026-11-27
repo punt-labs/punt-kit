@@ -15,7 +15,7 @@ Each standard lives in its own document under `standards/`.
 | [Standards and Rules](standards/standards.md) | Policy in `standards/`, per-language rules in `lang-rules/<lang>/`, stable clause IDs, rule citations and gates, no status, the `make check-standards` traceability check |
 | [Distribution](standards/distribution.md) | Install paths (marketplace, PyPI, .mcpb), dependency pinning, installation scope, init vs install, uninstall requirements |
 | [CLI](standards/cli.md) | CLI + plugin duality, required subcommands (install, doctor, version, serve), --json flag, shell completion |
-| [Tool Enable/Disable](standards/tool-enable-disable.md) | User-owned CLAUDE.md, the bare `@`-import line, the zoned `.punt-labs/<tool>/` subtree (vendored zone tool-owned), the `enabled` marker, enable/disable verbs, audit checks, sentinel migration |
+| [Tool Enable/Disable](standards/tool-enable-disable.md) | User-owned CLAUDE.md, the bare `@`-import line in sorted position, the zoned `.punt-labs/<tool>/` subtree (vendored zone tool-owned), shared and personal enable scopes, the `enabled` marker and committed opt-out, guide refresh, what "off" means, gitignore baseline, audit checks, sentinel migration |
 | [Plugins](standards/plugins.md) | plugin.json, MCP server declaration, extension points, required hooks (SessionStart + PostToolUse), tool naming, gitignore checklist |
 | [Hooks](standards/hooks.md) | Claude Code state machine, three-layer dispatch, shell gates, Python handlers, decision-block and workflow-gate patterns, startup performance, audit checklist |
 | [Permissions](standards/permissions.md) | Allow/prompt/deny tiers, settings.json vs settings.local.json, required allow and deny rules, plugin-distributed permissions |

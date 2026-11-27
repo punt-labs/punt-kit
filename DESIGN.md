@@ -2702,3 +2702,40 @@ source `PL-971`, not a blanket rebaseline.
 | Inline marker migration in init | Regresses init's complexity and size ratchets and mixes parsing with orchestration. |
 | Reuse seed's section replacement parser | Normalizes line endings and treats malformed sections as fatal; migration must preserve user content and continue reference initialization. |
 | Strip through an unmatched begin marker | Risks deleting user-owned content without a matching section boundary. |
+
+## DES-046: Enable Has a Shared and a Personal Scope
+
+**Date:** 2026-11-27
+
+**Decision.** `<tool> enable` / `disable` take `--scope project|local`,
+defaulting to `local`. Shared (`project`) scope writes the committed marker,
+guide, `CLAUDE.md` import and `.claude/settings.json` grants; personal
+(`local`) scope writes only ignored files: `.punt-labs/local/<tool>/`,
+`CLAUDE.local.md` and `.claude/settings.local.json`. Tool-owned import lines
+and permission entries are inserted in sorted position and never moved; a
+write whose bytes would not change does not happen; a deposited guide changes
+only on `enable --refresh`. A committed `.punt-labs/<tool>/opt-out` records a
+deliberate project-wide off that `enable` and automation honor. "Off" is
+defined: MCP tools dormant, hooks no-op, daemons ignore the repo. See
+[tool-enable-disable.md](standards/tool-enable-disable.md) §2.3–§2.8, §2.15.
+
+**Why.** One writer expressed both team policy and personal intent, so a
+personal toggle dirtied tracked files. Appending imports and grants made the
+committed bytes depend on enable order (PL-1752); `enable` as the upgrade path
+let any version difference rewrite committed guides (PL-1111); and with no
+recorded opt-out, agent-start enable loops re-enabled tools a repo had turned
+off by hand.
+
+**Rejected.**
+
+- *Move all configuration to home.* Clones would stop being reproducible, and
+  team policy would leave code review.
+- *Default to shared scope.* Keeps the churn: a person trying a tool would
+  still edit `CLAUDE.md` and `.claude/settings.json`. Team enablement is the
+  rarer, reviewed act, so it carries the flag.
+- *Sort the whole host file or settings array.* Reorders human lines and
+  entries the tool does not own.
+- *Opt-out as a key in tool config.* Every tool would need its own parser, and
+  hooks gate with a file test; an empty file needs neither.
+- *Pin guide bytes by version stamp.* Still rewrites on every pin bump; an
+  explicit refresh makes the upgrade one reviewable diff.

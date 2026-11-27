@@ -1,6 +1,6 @@
 # Integration Standards
 
-**Updated:** 2026-11-26
+**Updated:** 2026-11-27
 
 How Punt Labs tools discover, communicate with, and coordinate each other
 inside a Claude Code session — without hard dependencies.
@@ -47,10 +47,12 @@ conventions, shell commands, and Claude Code hooks. No shared library required.
 
 #### L0: Presence
 
-Detect whether a peer tool is enabled in the current project by checking for
-its **enabled marker** at the git root: `.punt-labs/<tool>/enabled`, written
-by `<tool> enable` and deleted by `<tool> disable`
+Detect whether a peer tool is on in the current checkout from its markers at
+the git root: the shared `.punt-labs/<tool>/enabled` or the personal
+`.punt-labs/local/<tool>/enabled`, and neither `.punt-labs/<tool>/opt-out` nor
+`.punt-labs/local/<tool>/disabled`
 ([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)).
+The table lists the shared marker.
 The marker supersedes every legacy repo-root sentinel as the presence signal,
 whatever shape it took — see [legacy shapes](../docs/repo-layout.md#compatibility-inventory).
 
@@ -72,7 +74,10 @@ from pathlib import Path
 
 
 def has_biff() -> bool:
-    return Path(".punt-labs/biff/enabled").exists()
+    p = Path(".punt-labs")
+    if (p / "biff/opt-out").exists() or (p / "local/biff/disabled").exists():
+        return False
+    return (p / "biff/enabled").exists() or (p / "local/biff/enabled").exists()
 ```
 
 Legacy settings preservation and destinations: [PLD-10](punt-labs-dir.md#pld-10-relocation-preserves-meaning-and-content) and [compatibility reference](../docs/repo-layout.md#compatibility-inventory).

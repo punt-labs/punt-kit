@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- The tool enable/disable standard now has two scopes. `enable --scope project`
+  writes the committed marker, guide, `CLAUDE.md` import and
+  `.claude/settings.json` grants; the default `--scope local` writes only
+  ignored files (`.punt-labs/local/<tool>/`, `CLAUDE.local.md`,
+  `.claude/settings.local.json`). Tool-owned imports and permission entries
+  go in sorted position, unchanged bytes are never rewritten, guides change
+  only on `enable --refresh`, a committed `.punt-labs/<tool>/opt-out` keeps a
+  tool off, and "off" is defined for MCP tools, hooks and daemons. The
+  standard also adds a gitignore baseline and fleet-wide audit checks; the
+  hooks, integration and permissions standards follow (DES-046).
 - The `/punt:bead-review` slash command and skill are renamed `/punt:issue-review`
   and now audit a repo's open Linear issues (label `repo:<name>`), proposing
   changes and asking before any write. The `autopilot` playbook now picks,
