@@ -1,10 +1,11 @@
 # Tool Enable/Disable Standard
 
-**Introduced:** 2026-07-19 · **Updated:** 2026-11-14
+**Introduced:** 2026-07-19 · **Updated:** 2026-11-27
 
 How a tool turns its CLAUDE.md guidance composition on and off in a repo: one
-bare `@`-import line in the repo's `CLAUDE.md`, one tool-owned
-`.punt-labs/<tool>/` directory, and the `enable` / `disable` verbs. Section
+bare `@`-import line in the repo's `CLAUDE.md` (or, for one person,
+`CLAUDE.local.md`), one tool-owned `.punt-labs/<tool>/` directory, and the
+`enable` / `disable` verbs in two scopes: shared and personal. Section
 numbering starts at 2.1; external cross-references cite these section numbers.
 
 ---
@@ -87,31 +88,81 @@ the fleet-wide vocabulary for turning a tool on and off, at both surfaces (§2.1
 A boolean `y|n` / `true|false` toggle is **not** permitted for enablement: it
 reads as a per-user preference, it splits into two vocabularies (one in the
 command, one in a config file), and it invites an auto-enable shortcut (below).
-`enable` writes the marker; `disable` removes it; there is no third state and no
-boolean. (Per-*user* preferences unrelated to enablement — e.g. a "do not contact
+`enable` writes a marker; `disable` removes it; the only other recorded state is
+the committed opt-out (§2.7), and there is no boolean. (Per-*user* preferences unrelated to enablement — e.g. a "do not contact
 me" flag — may keep their own `y|n` verb; that is a separate layer, see §2.14.)
 
 **No auto-enable.** A tool never turns itself on as a side effect of first use.
 Enablement is explicit: the marker exists because a human ran `enable` and
 committed it, never because the tool inferred intent. A tool invoked in a repo
 where its marker is absent is a graceful no-op, not a trigger to self-enable.
+Automation counts as first use: agent start, a SessionStart hook, an installer,
+a plugin update or a nightly job never enables a tool in a repo where it is
+absent, dormant or opted out. Automation that re-runs `enable` in a repo where
+the tool is already enabled must leave the bytes unchanged (no-op writes,
+below) and skip any tool whose opt-out exists (§2.7).
 
-**`enable`** — idempotent; re-running is also the upgrade path:
+**Two scopes: shared and personal.** `enable` and `disable` take a scope, named
+as Claude Code names its settings scopes:
 
-1. Deposit `<repo>/.punt-labs/<tool>/CLAUDE.md` (and any other files the tool
-   ships), overwriting wholesale.
-2. Write the enabled marker `<repo>/.punt-labs/<tool>/enabled` (see 2.7).
-3. Add `@.punt-labs/<tool>/CLAUDE.md` to `<repo>/CLAUDE.md` if absent. Never add
-   it twice.
-4. Optionally register repo-scoped hooks and config as additive entries in
-   `<repo>/.claude/settings.json` (see 2.8).
+| Scope | Flag | Affects | Marker | Guide | Import line, host file | Grants |
+|-------|------|---------|--------|-------|------------------------|--------|
+| Shared | `--scope project` | everyone who clones | `.punt-labs/<tool>/enabled` (committed) | `.punt-labs/<tool>/CLAUDE.md` (committed) | `@.punt-labs/<tool>/CLAUDE.md` in `<repo>/CLAUDE.md` | `.claude/settings.json` |
+| Personal | `--scope local` (default) | this checkout only | `.punt-labs/local/<tool>/enabled` (ignored) | `.punt-labs/local/<tool>/CLAUDE.md` (ignored) | `@.punt-labs/local/<tool>/CLAUDE.md` in `<repo>/CLAUDE.local.md` | `.claude/settings.local.json` |
+
+The default is `local`. A bare `<tool> enable` changes no tracked file; only a
+deliberate `--scope project` edits team policy (`CLAUDE.md`,
+`.claude/settings.json`, the committed marker), and that change lands through a
+PR. Personal scope writes only paths the gitignore baseline (§2.6) ignores:
+before writing, the tool confirms each target is ignored and untracked
+(`git check-ignore`, `git ls-files`) and refuses, naming the file, if one is not.
+
+**`enable`** — idempotent; never an upgrade (see `--refresh`):
+
+1. Refuse if the opt-out `.punt-labs/<tool>/opt-out` exists (§2.7): exit
+   non-zero, name the file, write nothing.
+2. Deposit the scope's guide **only if it is absent** (and any other files the
+   tool ships, under the same rule). An existing guide is left alone even when
+   the installed tool ships different bytes.
+3. Write the scope's marker (see 2.7).
+4. Add the scope's import line to the scope's host file in its sorted position
+   (§2.4) if absent. Never add it twice.
+5. Add the tool's permission entries to the scope's settings file in their
+   sorted position (§2.8).
+6. Shared scope only: optionally register repo-scoped hooks, config and a
+   tool-owned CI workflow (see 2.8). Personal scope registers none.
+
+Personal `enable` in a repo where the shared marker is present writes only the
+personal marker and deletes `.punt-labs/local/<tool>/disabled` if present; the
+shared guide, import and grants already cover the checkout.
 
 **`disable`**:
 
-1. Remove `@.punt-labs/<tool>/CLAUDE.md` from `<repo>/CLAUDE.md`.
-2. Delete the enabled marker `<repo>/.punt-labs/<tool>/enabled`.
-3. Deregister the hook and config entries it added.
-4. Leave the rest of `<repo>/.punt-labs/<tool>/` in place, dormant (see 2.9).
+1. Remove the scope's import line from the scope's host file.
+2. Delete the scope's marker.
+3. Remove the permission entries, hooks and config the scope added.
+4. Leave the rest of `.punt-labs/<tool>/` (and `.punt-labs/local/<tool>/`) in
+   place, dormant (see 2.9).
+5. Personal scope, when the shared marker is present: write
+   `.punt-labs/local/<tool>/disabled`, which turns the tool off at runtime in
+   this checkout (§2.15). It cannot unload the shared import or withdraw shared
+   grants (Claude Code merges permission arrays across scopes, and
+   `CLAUDE.local.md` cannot cancel an import), so `status` says the shared guide
+   still loads.
+6. `disable --scope project --opt-out` also writes the committed opt-out
+   (§2.7), in the same change that removes the shared marker.
+
+**`enable --refresh`** is the one path that rewrites a deposited guide: it
+replaces the scope's guide with the installed tool's bytes when they differ.
+In shared scope it is the reviewable upgrade, one diff in one PR. It never runs
+as a side effect of SessionStart, `install`, `uninstall`, a plugin update or
+any other verb (§2.5).
+
+**No-op writes.** When the result of any step would equal the file's current
+bytes, the tool writes nothing: no temporary file, no rename, no mode or mtime
+change. This covers every file this standard names — guides, markers, host
+files, settings files and the CI workflow — so repeating `enable` or `disable`
+leaves `git status --porcelain` empty.
 
 ## 2.4 Import Line Rules
 
@@ -120,14 +171,24 @@ where its marker is absent is a graceful no-op, not a trigger to self-enable.
   whitespace; one physical line, no embedded newline. This exact string is what
   `enable` writes, what `disable` matches, and what `punt repo audit` greps — all 15
   CLIs must produce byte-identical lines.
-- **One bare line, appended at end of file.** No heading, no marker, no comment.
+- **One bare line, in its sorted position.** No heading, no marker, no comment.
+- **Sorted position, never reordered.** Tool-owned import lines (top-level lines
+  that are a canonical `@.punt-labs/<tool>/CLAUDE.md` or
+  `@.punt-labs/local/<tool>/CLAUDE.md` import) are kept in ascending code-point
+  order. `enable` inserts the new line immediately before the first existing
+  tool-owned import line that sorts after it; if none does, immediately after
+  the last tool-owned import line; if the host file has none, at the end of the
+  file. It never moves an existing line, human or tool-owned. From a host file
+  whose tool-owned lines are already sorted (an audit check, §2.11), every
+  enable order produces the same bytes (PL-1752).
 - **Ensured separation.** If the host file does not end in a newline, add one
-  before appending, so the import is never glued to the user's last line.
+  before inserting at the end, so the import is never glued to the user's last
+  line.
 - **Idempotent by exact match, terminator-insensitive.** Presence is decided by
   matching the canonical line against each host line **net of its terminator** —
   strip the trailing `\r`, `\n`, or `\r\n` before comparing, so a CRLF host does
   not carry a spurious `\r` that defeats a byte-exact compare (which would make
-  `enable` append duplicates and `disable` fail to remove). `enable` appends only
+  `enable` append duplicates and `disable` fail to remove). `enable` inserts only
   if absent; `disable` removes every match (collapsing an accidental duplicate to
   zero). This match rule is content-level; the write path (below) stays
   byte-preserving of the file's existing line endings.
@@ -219,8 +280,9 @@ where its marker is absent is a graceful no-op, not a trigger to self-enable.
 
 ## 2.5 Every tool ships a user-guide doc
 
-**Every tool MUST ship a user-guide `CLAUDE.md`, deposited into
-`<repo>/.punt-labs/<tool>/CLAUDE.md` by `enable` — repo scope only.** It is the
+**Every tool MUST ship a user-guide `CLAUDE.md`, deposited by `enable` into
+the scope's guide path (§2.3) — `<repo>/.punt-labs/<tool>/CLAUDE.md` shared,
+`<repo>/.punt-labs/local/<tool>/CLAUDE.md` personal.** It is the
 tool's agent-facing manual — how an agent or user *drives* the tool: slash
 commands, auto-behaviors, tips, gotchas. It is not the tool repo's developer
 `CLAUDE.md` and not a reference dump. Precedent: vox's deposited
@@ -237,16 +299,25 @@ guidance, not an exhaustive reference. Keep imports shallow: Claude Code resolve
 `@`-imports recursively only to a bounded depth, so do not chain deep import
 trees from the tool doc.
 
-## 2.6 Scope: one layer, repo only
+**A deposited guide is a pinned copy; only a refresh changes it.** Once
+deposited, a guide changes only through `<tool> enable --refresh` (§2.3).
+SessionStart, `install`, `uninstall`, `upgrade`, `doctor`, a plugin update and
+a repeated `enable` never rewrite it, so a different tool version on another
+machine leaves the committed guide alone (PL-1111). `status` and `doctor` may
+report that the installed guide differs from the deposited one, as information;
+they never rewrite it.
 
-There is one layer, and it is the repo:
+## 2.6 Scope: shared and personal, both in the repo
 
-| Layer | Host file | Written by | Import line |
-|-------|-----------|-----------|-------------|
-| Repo | `<repo>/CLAUDE.md` | `<tool> enable` (run in the repo) | `@.punt-labs/<tool>/CLAUDE.md` |
+There are two layers, both inside the checkout:
+
+| Layer | Host file | Tracked | Written by | Import line |
+|-------|-----------|---------|-----------|-------------|
+| Shared | `<repo>/CLAUDE.md` | committed | `<tool> enable --scope project` | `@.punt-labs/<tool>/CLAUDE.md` |
+| Personal | `<repo>/CLAUDE.local.md` | ignored | `<tool> enable` (`--scope local`) | `@.punt-labs/local/<tool>/CLAUDE.md` |
 
 `enable` is the **sole** path that deposits a guide and writes an import line,
-and it always writes the repo `CLAUDE.md`. `install` installs software only (the
+and it writes the repo `CLAUDE.md` (shared) or `CLAUDE.local.md` (personal). `install` installs software only (the
 MCP server, binaries, models, data directories); it deposits no guide and writes
 no import line, and it never touches a `CLAUDE.md` (§2.3, §2.5). There is no
 user-scope import: `~/.claude/CLAUDE.md` carries no tool guides, and no guide is
@@ -273,9 +344,29 @@ audit (§ 2.11) does not scan `~/.claude/CLAUDE.md`, so a user who never re-runs
 either verb keeps the stale line until they do. No tool writes that file, so no
 *new* user-scope import is ever created.
 
+**Gitignore baseline.** Personal scope depends on these paths being ignored, so
+every repo with a Punt Labs tool carries them in its root `.gitignore`:
+
+```gitignore
+.punt-labs/**/*.local.*
+.punt-labs/local/
+CLAUDE.local.md
+.claude/settings.local.json
+.*.punt-import.lock
+```
+
+The lock pattern covers the § 2.4 sibling locks (`.CLAUDE.md.punt-import.lock`,
+`.CLAUDE.local.md.punt-import.lock`, `.claude/.settings.json.punt-import.lock`,
+`.claude/.settings.local.json.punt-import.lock`). An ignore rule does not
+untrack a file: a lock or personal file already tracked is removed from the
+index with `git rm --cached` in a reviewed change. Committed team inputs (the
+shared marker, guide, `.punt-labs/<tool>/config.*`) stay tracked.
+
 ## 2.7 The enabled marker
 
-The tool is **enabled** in a repo when the marker file
+### Shared marker
+
+The tool is **enabled for the project** when the marker file
 `<repo>/.punt-labs/<tool>/enabled` exists. `enable` writes it; `disable` deletes
 it. This is a distinct signal from directory presence: the directory can persist
 (dormant vendored content) after `disable`, so directory-presence cannot mean
@@ -290,42 +381,78 @@ local-convention files, §2.9). It travels with the repo: a project-level tool
 for the whole project or off for it, so whether it is enabled is a property of
 the repo that every contributor who clones — and has the tool installed —
 shares. Committing the marker makes that decision reviewable in a PR and
-identical for the whole team, with no hidden per-machine divergence. A
-gitignored per-user enablement flag is the rejected alternative: it silently
-leaves a fresh clone off for everyone and re-litigates the decision on each
-machine. Genuinely per-*user* preferences (e.g. "do not contact me right now")
+identical for the whole team, with no hidden per-machine divergence. The
+personal marker (below) does not replace it: a gitignored flag as the *only*
+enablement would leave a fresh clone off for everyone and re-litigate the
+decision on each machine. Genuinely per-*user* preferences (e.g. "do not contact me right now")
 are a separate, local/gitignored layer — see §2.14.
 
-Hook shell gates test the marker, and also confirm the tool is installed, so a
-clone of a marker-enabled repo on a machine *without* the tool is a graceful
+### Personal marker and personal off
+
+`<repo>/.punt-labs/local/<tool>/enabled`, written by personal `enable`, turns
+the tool on in this checkout only. `<repo>/.punt-labs/local/<tool>/disabled`,
+written by personal `disable` in a project-enabled repo, turns it off in this
+checkout only. Both are ignored (§2.6) and never travel in a PR.
+
+### Committed opt-out
+
+`<repo>/.punt-labs/<tool>/opt-out` records that the project decided the tool
+stays off — for example, the Punt Labs meta-repo keeping ethos off because its
+child repos load it. It is committed and reviewed like the marker. Its content
+is an optional one-line reason, never parsed. While it exists:
+
+- `enable` in either scope refuses (§2.3): exit non-zero, nothing written.
+- Automation — agent start, SessionStart, installers, `punt enable <tool>`,
+  convergence jobs — skips the tool and exits 0.
+- Hooks, MCP servers and daemons treat the tool as off (§2.15).
+
+It never coexists with the shared marker: `disable --scope project --opt-out`
+removes the marker and writes the opt-out in one change. Only a person lifts
+it, by deleting the file in a PR or with
+`enable --scope project --clear-opt-out`, which deletes it and enables in the
+same change. Automation never passes `--clear-opt-out`.
+
+### Effective state
+
+The tool is **on** in a checkout when no opt-out and no personal `disabled`
+marker exists, and the shared or the personal `enabled` marker does:
+
+| State | Shared `enabled` | Personal `enabled` | `opt-out` | Personal `disabled` | On |
+|-------|------------------|--------------------|-----------|---------------------|----|
+| Enabled for the project | present | any | absent | absent | yes |
+| Enabled for one person | absent | present | absent | absent | yes |
+| Off for one person | present | any | absent | present | no |
+| Dormant (disabled) | absent | absent | absent | n/a | no |
+| Opted out | absent | absent | present | n/a | no |
+| Absent (no directory) | absent | absent | absent | n/a | no |
+
+Hook shell gates test effective state, and also confirm the tool is installed,
+so a clone of an enabled repo on a machine *without* the tool is a graceful
 no-op rather than a "command not found" error (the §2.11 "no stale enabled
 tools" invariant, at gate time):
 
 ```bash
-[ -f "$REPO_ROOT/.punt-labs/<tool>/enabled" ] || exit 0
+P="$REPO_ROOT/.punt-labs"
+[ -f "$P/<tool>/opt-out" ] && exit 0
+[ -f "$P/local/<tool>/disabled" ] && exit 0
+[ -f "$P/<tool>/enabled" ] || [ -f "$P/local/<tool>/enabled" ] || exit 0
 command -v <tool> >/dev/null 2>&1 || exit 0
 ```
-
-Three states are distinguishable, and the invariants in 2.9 and 2.11 depend
-on the distinction:
-
-| State | Directory | `enabled` marker | Import line |
-|-------|-----------|------------------|-------------|
-| Enabled | present | present | present |
-| Dormant (disabled) | present | absent | absent |
-| Absent | absent | absent | absent |
 
 This marker is the one presence signal; no repo-root sentinel is, whatever
 shape it takes —
 a settings dotfile, a config-bearing root directory, or a bare presence marker
 ([punt's compatibility reference](../docs/repo-layout.md#compatibility-inventory)
 classifies legacy shapes): one file, inside the
-tool's directory, that both hook gates and `punt repo audit` read.
+tool's directory (plus its personal counterpart under `.punt-labs/local/`),
+that both hook gates and `punt repo audit` read.
 
 ## 2.8 Hooks and config
 
 `enable` may register repo-scoped hooks or permissions. Its primary file outside
-its own subtree is `<repo>/.claude/settings.json`, touched only additively (a
+its own subtree is the scope's settings file — `<repo>/.claude/settings.json`
+for shared scope, `<repo>/.claude/settings.local.json` for personal scope;
+personal scope never edits `settings.json` — touched only additively (a
 tool-owned CI workflow file is the one further exception — see the carve-out at
 the end of this section). Because that file is shared with other tools and invocations, the
 read-modify-write **must take the same exclusive lock as § 2.4** (the lock
@@ -336,9 +463,17 @@ import-line append.
 - The tool computes a **deterministic set of entries** (the same inputs always
   produce the same rules — the wholesale-overwrite determinism of 2.2 guarantees
   this).
-- `enable` merges that set with the order-preserving, idempotent `jq` pattern
-  from [permissions.md § 6](permissions.md#6-plugin-distributed-permissions),
-  adding only entries not already present.
+- `enable` adds only entries not already present, each in its **sorted
+  position**: immediately before the first existing entry in the same array
+  that sorts after it (code-point order), or at the end if none does. It never
+  moves or rewrites an existing entry, human or tool-owned, and writes nothing
+  when no entry is missing (§2.3). From an array whose entries are sorted, every
+  tool order produces the same bytes (PL-1752);
+  [permissions.md § 6](permissions.md#6-plugin-distributed-permissions) gives
+  the `jq` form.
+- Personal scope grants the same set in `settings.local.json`. Claude Code
+  merges permission arrays across scopes, so personal `disable` removes only
+  the personal entries; it cannot withdraw a shared grant.
 - `disable` recomputes the identical set and removes those entries by **exact
   value-match** — the removal pattern permissions.md § 6 actually provides
   (`select(. as $r | $remove | index($r) | not)`). No tag schema is needed or
@@ -360,10 +495,11 @@ import-line append.
   principle 3. `disable` removes the same `allow` and `ask` values.
 
 Most tools ship hooks through their marketplace plugin (global). Repo-scoped hook
-deposit via `enable` is only for genuinely repo-scoped hook behavior.
+deposit via `enable` is only for genuinely repo-scoped hook behavior, and only
+in shared scope.
 
 **Carve-out: tool-owned CI workflow files.** Beyond `<repo>/.claude/settings.json`,
-`enable` may own and install a CI workflow file it fully owns —
+shared-scope `enable` may own and install a CI workflow file it fully owns —
 `<repo>/.github/workflows/<tool>-notify.yml` — when the tool's behavior requires
 a committed GitHub Actions workflow. biff's `enable` installs
 `.github/workflows/biff-notify.yml` (and `disable` removes it), the workflow that
@@ -385,6 +521,7 @@ replaced.
 `disable` stops composition; it does not erase vendored data. It removes the
 import line, deletes the `enabled` marker (2.7), and deregisters hooks, but leaves
 the rest of `<repo>/.punt-labs/<tool>/` in place — the **dormant** state.
+Personal `disable` likewise leaves `<repo>/.punt-labs/local/<tool>/` in place.
 Rationale:
 
 - Ownership and overwrite scope: [PLD-7](punt-labs-dir.md#pld-7-tool-deployment-respects-ownership-zones).
@@ -421,14 +558,25 @@ standard.
 
 ## 2.11 What `punt repo audit` checks
 
-The checks key on the `enabled` marker (2.7), not on directory presence, so a
-dormant tool is not flagged.
+The checks key on the markers (2.7), not on directory presence, so a dormant
+tool is not flagged. They run for every tool directory under `.punt-labs/`, not
+only punt's own.
 
-- **Import present iff enabled.** For every `<repo>/.punt-labs/<tool>/` whose
-  `enabled` marker is present, the repo `CLAUDE.md` contains exactly one
-  `@.punt-labs/<tool>/CLAUDE.md` line. For every tool whose marker is absent
-  (dormant or gone), the import line is absent. This is the load-bearing
-  biconditional: enabled ⟺ import line.
+- **Import present iff enabled, per scope.** For every `<repo>/.punt-labs/<tool>/`
+  whose shared `enabled` marker is present, the repo `CLAUDE.md` contains
+  exactly one `@.punt-labs/<tool>/CLAUDE.md` line; for every tool whose shared
+  marker is absent (dormant, opted out or gone), that line is absent. The same
+  holds for the personal marker and `@.punt-labs/local/<tool>/CLAUDE.md` in
+  `CLAUDE.local.md`, when that file exists. This is the load-bearing
+  biconditional: enabled ⟺ import line, in each scope.
+- **Opt-out is exclusive.** No tool has both `opt-out` and the shared `enabled`
+  marker, and an opted-out tool has no shared import line and no shared grants.
+- **Sorted.** Tool-owned import lines in each host file, and tool-owned
+  permission entries in each settings array, are in ascending code-point order
+  relative to one another (§2.4, §2.8). Human lines and entries are not checked.
+- **Personal paths are ignored.** Every path in the gitignore baseline (§2.6) is
+  ignored (`git check-ignore`), and none is tracked
+  (`git ls-files -ci --exclude-standard`); a tracked lock file fails.
 - **No orphan imports.** No `@.punt-labs/<tool>/CLAUDE.md` line without a
   corresponding `.punt-labs/<tool>/CLAUDE.md` file (hard fail — the import will
   break at read time).
@@ -465,6 +613,25 @@ Forward integration, no compatibility shim
 - A `punt:begin` / `punt:end` marker section found in a repo `CLAUDE.md` is
   content to delete, leaving the user's prose plus bare import lines.
   Makefile marker sections are untouched.
+
+### Scope split migration (shared and personal enable)
+
+Repos enabled before the scope split stay enabled: every marker, guide, import
+and grant that `enable` wrote was shared scope, so none moves. What changes:
+
+- A bare `<tool> enable` now means personal scope. Scripts, playbooks and docs
+  that enable a tool for a team pass `--scope project`.
+- A loop that runs `<tool> enable` for every tool at agent start is removed, or
+  limited to repos where the tool is already enabled, and honors the opt-out;
+  under the no-op rule (§2.3) it then changes no bytes.
+- A repo that turned a tool off by hand (a commented-out import, missing
+  grants) records that with `disable --scope project --opt-out`.
+- The first shared `enable` after the split may sort tool-owned import lines
+  and permission entries once, in a reviewed PR; after that, insertion keeps
+  them sorted.
+- Personal preferences a tool kept in a tracked file (a display or mute flag in
+  `.punt-labs/<tool>/*.md` or `.punt-labs/lux.md`) move to an ignored
+  `*.local.*` file (§2.14).
 
 ### Sentinel migration (legacy root sentinel → `enabled` marker)
 
@@ -533,14 +700,14 @@ concerns stay separate.
 
 ### Two front-ends, one marker
 
-Every project-level tool exposes the `enable` / `disable` verbs at **both**
-front-ends, and both write and remove the **same** `.punt-labs/<tool>/enabled`
-marker (§2.7). There is one source of truth; the surfaces are two doors to it.
+Every project-level tool exposes the `enable` / `disable` verbs, with both
+scopes, at **both** front-ends, and both write and remove the **same** markers
+(§2.7). There is one source of truth; the surfaces are two doors to it.
 
 | Surface | Form | Writes |
 |---------|------|--------|
-| CLI | `<tool> enable` / `<tool> disable`, run in the repo | The marker (and hooks/import per §2.3) |
-| Claude Code | `/<tool> enable` / `/<tool> disable` | The marker, via the tool's MCP server |
+| CLI | `<tool> enable` / `<tool> disable [--scope project\|local]`, run in the repo | The scope's marker, import and grants (§2.3) |
+| Claude Code | `/<tool> enable` / `/<tool> disable [project\|local]` | The same, via the tool's MCP server |
 
 The two must be behaviorally interchangeable for the enablement decision: a
 marker written by `/<tool> enable` is identical to one written by
@@ -549,25 +716,54 @@ git — the marker is a working-tree change the user commits via a PR like any
 other, so enablement lands through review, not through a tool's side effect.
 
 An MCP enable/disable tool takes an `action` argument constrained to
-`"enable" | "disable"` — **not** an `enabled: bool`. The boolean shape is the
+`"enable" | "disable"` — **not** an `enabled: bool` — and a `scope` argument
+constrained to `"project" | "local"`, defaulting to `"local"`. The boolean shape is the
 forbidden `y|n` vocabulary (§2.3) wearing a type; the verb shape keeps the one
 vocabulary across both surfaces.
 
 ### The per-user layer is separate
 
-Repo enablement (this standard) answers "is the tool on for this project?" It is
-committed and whole-repo. It is **not** the place for a per-user, per-session
+Repo enablement (this standard) answers "is the tool on for this project, or
+for me in this checkout?" Shared scope is committed and whole-repo; personal
+scope is ignored and one checkout. It is **not** the place for a per-user, per-session
 preference such as "I am here but do not deliver messages to me right now." That
 preference is a distinct, **local/gitignored** layer the tool owns separately
 (biff's `mesg y|n` is the reference: a per-user delivery switch, not the
 enablement switch). The two never conflate:
 
-- Repo policy (committed marker) decides whether the tool runs for the project
-  at all. Removing it turns the tool off for everyone on their next clone/pull.
+- Repo policy (the markers and the opt-out, §2.7) decides whether the tool runs
+  in the checkout at all. Removing it turns the tool off for everyone on their next clone/pull.
 - The per-user layer decides one contributor's momentary behavior *while the
-  tool is enabled*. It lives in a gitignored file (`*.local.*`,
-  `.punt-labs/<tool>/local/`, §2.9) and never travels in a PR.
+  tool is enabled* — biff's `mesg`, lux's display mode, vox's mute and
+  notify. It lives in a gitignored file (`.punt-labs/<tool>/*.local.*` or
+  `.punt-labs/local/<tool>/`, §2.6) and never travels in a PR. A command that
+  sets a personal preference never writes a tracked file.
 
 A per-user preference verb may keep a `y|n` form (it is a genuine two-state
 preference, not enablement); the `y|n` prohibition in §2.3 applies to
 *enablement* only.
+
+## 2.15 What "off" means
+
+When the effective state (§2.7) is off — absent, dormant, opted out, or off for
+one person — the tool does nothing automatic in that checkout. biff's dormant
+relay is the reference.
+
+- **MCP tools are dormant.** The server may still start, because the plugin is
+  installed at user scope, but every tool other than enablement and status
+  returns a result that says the tool is off in this repo and how to enable it.
+  A dormant tool writes nothing, sends nothing over the network and starts
+  nothing.
+- **Hooks do nothing.** Every hook passes the §2.7 gate before any work and
+  exits 0 with no output and no side effect when the tool is off.
+- **Daemons ignore the repo.** A background service does not watch, index,
+  sync, capture, poll, deliver or register anything for an off checkout. A
+  service already serving the repo drops it at its next event or check, and
+  keeps the repo's data (§2.9).
+- **Explicit commands still run.** A command a person types (`vox say`,
+  `quarry search`) is intent and may run, but no command except `enable`,
+  `disable`, `enable --refresh` and `init` writes repo state while the tool is
+  off.
+- **`status` names the deciding file.** `<tool> status` and `doctor` report the
+  effective state and the file that decided it (shared marker, personal marker,
+  personal `disabled`, opt-out).

@@ -151,7 +151,10 @@ the CLI. They must never contain business logic.
 #!/usr/bin/env bash
 # hooks/<event>.sh — Thin gate for <event> hook
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
-[ -f "$REPO_ROOT/.punt-labs/<tool>/enabled" ] || exit 0
+P="$REPO_ROOT/.punt-labs"
+[ -f "$P/<tool>/opt-out" ] && exit 0
+[ -f "$P/local/<tool>/disabled" ] && exit 0
+[ -f "$P/<tool>/enabled" ] || [ -f "$P/local/<tool>/enabled" ] || exit 0
 <tool> hook <event> 2>/dev/null || true
 ```
 
@@ -164,9 +167,12 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
   Only mutation hooks (PreToolUse denials) should propagate failures.
 - **No business logic**: If the script is longer than 10 lines of
   non-boilerplate, the logic belongs in Python.
-- **Config gate**: Check the tool's enabled marker
-  (`.punt-labs/<tool>/enabled`) before dispatching. Exit 0 if absent. The
-  marker — not a repo-root dotfile — is the enabled signal
+- **Config gate**: Check the tool's effective state before dispatching:
+  exit 0 when the opt-out (`.punt-labs/<tool>/opt-out`) or the personal
+  `disabled` marker exists, or when neither the shared
+  (`.punt-labs/<tool>/enabled`) nor the personal
+  (`.punt-labs/local/<tool>/enabled`) marker does. The markers — not a
+  repo-root dotfile — are the enabled signal
   ([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)).
 
 ### Critical: wire shell scripts to Python handlers
