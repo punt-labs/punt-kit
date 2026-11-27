@@ -543,7 +543,7 @@ A tool's doc is vendored in the repo and imported from the repo `CLAUDE.md`:
 Every tool that uses this mechanism (quarry, biff, vox included) deposits its
 doc and adds `@.punt-labs/<tool>/CLAUDE.md` to `<repo>/CLAUDE.md` via
 `<tool> enable`, run per repo
-([tool-enable-disable.md § 2.6](tool-enable-disable.md#26-scope-one-layer-repo-only)).
+([tool-enable-disable.md § 2.6](tool-enable-disable.md#26-scope-shared-and-personal-both-in-the-repo)).
 `enable` is the sole import path; `install` sets up software only and writes no
 import line and no guide. `~/.punt-labs/<tool>/` may hold machine-scoped config
 and state, but never an imported guide, and `~/.claude/CLAUDE.md` is never
@@ -630,7 +630,7 @@ handles all cleanup:
 | Plugin registration | `claude plugin install` | `claude plugin uninstall` |
 | Deployed commands in `~/.claude/commands/` | SessionStart hook | Project `uninstall` |
 | Permission rules in `<repo>/.claude/settings.json` | `<tool> enable` | `<tool> disable`, per repo |
-| Legacy user-scope `@~/.punt-labs/<tool>/CLAUDE.md` import line in `~/.claude/CLAUDE.md` | An earlier `install`; `install` never writes it ([tool-enable-disable.md § 2.6](tool-enable-disable.md#26-scope-one-layer-repo-only)) | Stripped on next `<tool> enable` or `uninstall` under the [tool-enable-disable.md § 2.4](tool-enable-disable.md#24-import-line-rules) write contract |
+| Legacy user-scope `@~/.punt-labs/<tool>/CLAUDE.md` import line in `~/.claude/CLAUDE.md` | An earlier `install`; `install` never writes it ([tool-enable-disable.md § 2.6](tool-enable-disable.md#26-scope-shared-and-personal-both-in-the-repo)) | Stripped on next `<tool> enable` or `uninstall` under the [tool-enable-disable.md § 2.4](tool-enable-disable.md#24-import-line-rules) write contract |
 | Status line wrapping | `install-statusline` | Project `uninstall` |
 | Marketplace registration | `install` | `uninstall` (keep if other punt-labs plugins installed) |
 | Orphaned local plugin dirs | Previous install method | `uninstall` (migration cleanup) |

@@ -7,10 +7,17 @@ bare `@`-import line in the repo's `CLAUDE.md` (or, for one person,
 `CLAUDE.local.md`), one tool-owned `.punt-labs/<tool>/` directory, and the
 `enable` / `disable` verbs in two scopes: shared and personal. Section
 numbering starts at 2.1; external cross-references cite these section numbers.
+Each obligation is a `TED-<n>` clause inside its section. Implementation rules
+live in [Python](../lang-rules/python/python-enablement.md) and
+[Go](../lang-rules/go/go-enablement.md).
 
 ---
 
 ## 2.1 Core Principle
+
+### TED-1: Change a user-owned CLAUDE.md only by one import line
+
+**Applies to:** python, go
 
 **The user's `CLAUDE.md` is user-owned prose. Tooling never merges, marks, or
 manages sections inside it.** The only mutation any tool may make to a
@@ -25,6 +32,10 @@ This standard governs only the **contract**: the import line, the tool-owned
 markers, or content templates for any user-owned `CLAUDE.md`, and it does not
 author user-guide content.
 
+### TED-2: Keep tool user guides separate from dev-process standards
+
+**Applies to:** python, go
+
 **Two separate things, never conflated.** Punt Labs *dev-process standards*
 (this `standards/` tree — how we build our own tools) are entirely separate from
 *tool user guides* (what `enable` installs for a tool's users — how an agent
@@ -38,6 +49,10 @@ dev standards and not the tool repo's own developer `CLAUDE.md`.
 | `<repo>/CLAUDE.md` | The user | `enable` adds one import line, `disable` removes it; every other byte is untouched. `~/.claude/CLAUDE.md` is user-owned and no tool ever writes it |
 | `<repo>/.punt-labs/<tool>/` | Zoned ([punt-labs-dir.md PLD-7](punt-labs-dir.md#pld-7-tool-deployment-respects-ownership-zones)): tool (vendored + `enabled` marker), repo (config, including any file a daemon rewrites), user (local-convention) | Deposited on `enable` when absent, vendored zone overwritten wholesale only on `enable --refresh` (config and local-convention zones untouched), left dormant on `disable` |
 | `~/.punt-labs/<tool>/` | Zoned: tool (machine config/state), user (local-convention) | Holds machine-scoped config and state written by `install`; carries no imported guide and no import line |
+
+### TED-3: Rewrite only the vendored zone, deterministically
+
+**Applies to:** python, go
 
 Each tool owns the **vendored zone** (and the `enabled` marker) of its
 `.punt-labs/<tool>/` subtree — not the whole subtree: the config zone is
@@ -58,6 +73,10 @@ This wholesale-overwrite/determinism contract is scoped to the subtree's
 it — see
 [punt-labs-dir.md PLD-7](punt-labs-dir.md#pld-7-tool-deployment-respects-ownership-zones).
 
+### TED-4: Commit only distributable content into the subtree
+
+**Applies to:** python, go
+
 Everything a tool commits into this subtree — the deposited guide, repo config,
 the ethos registry, `missions-closed/` exports, and vended agent content —
 carries no incidental third-party PII and no profanity before it enters git.
@@ -68,6 +87,10 @@ tool, not stripped). The gitignored local zone and the home tree are out of
 scope — they are never committed.
 
 ## 2.3 The `enable` / `disable` Convention
+
+### TED-5: Expose enablement as the `enable` and `disable` verbs
+
+**Applies to:** python, go
 
 Every tool CLI with per-repo presence exposes two commands, run from inside a
 repo. See [CLI-7](cli.md#cli-7-apply-the-platforms-naming-and-setup-boundaries)
@@ -92,6 +115,10 @@ command, one in a config file), and it invites an auto-enable shortcut (below).
 the committed opt-out (§2.7), and there is no boolean. (Per-*user* preferences unrelated to enablement — e.g. a "do not contact
 me" flag — may keep their own `y|n` verb; that is a separate layer, see §2.14.)
 
+### TED-6: Never enable a tool automatically
+
+**Applies to:** python, go
+
 **No auto-enable.** A tool never turns itself on as a side effect of first use.
 Enablement is explicit: the marker exists because a human ran `enable` and
 committed it, never because the tool inferred intent. A tool invoked in a repo
@@ -103,6 +130,10 @@ absent, dormant or opted out; converting a legacy sentinel to the marker
 the tool is already enabled must leave the bytes unchanged (no-op writes,
 below) and skip any tool whose opt-out exists (§2.7).
 
+### TED-7: Enable in a shared or a personal scope
+
+**Applies to:** python, go
+
 **Two scopes: shared and personal.** `enable` and `disable` take a scope, named
 as Claude Code names its settings scopes:
 
@@ -110,6 +141,10 @@ as Claude Code names its settings scopes:
 |-------|------|---------|--------|-------|------------------------|--------|
 | Shared | `--scope project` | everyone who clones | `.punt-labs/<tool>/enabled` (committed) | `.punt-labs/<tool>/CLAUDE.md` (committed) | `@.punt-labs/<tool>/CLAUDE.md` in `<repo>/CLAUDE.md` | `.claude/settings.json` |
 | Personal | `--scope local` (default) | this checkout only | `.punt-labs/local/<tool>/enabled` (ignored) | `.punt-labs/local/<tool>/CLAUDE.md` (ignored) | `@.punt-labs/local/<tool>/CLAUDE.md` in `<repo>/CLAUDE.local.md` | `.claude/settings.local.json` |
+
+### TED-8: Write personal scope only to ignored, untracked paths
+
+**Applies to:** python, go
 
 The default is `local`. A bare `<tool> enable` changes no tracked file; only a
 deliberate `--scope project` edits team policy (`CLAUDE.md`,
@@ -120,6 +155,10 @@ before writing, the tool confirms each target is ignored and untracked
 The check applies to the resolved path too: a personal target that is a symlink
 resolving outside the ignored paths (for example `CLAUDE.local.md` linked to
 `CLAUDE.md`) is refused.
+
+### TED-9: Make `enable` idempotent and refuse under an opt-out
+
+**Applies to:** python, go
 
 **`enable`** — idempotent; never an upgrade (see `--refresh`):
 
@@ -143,6 +182,10 @@ and grants already cover the checkout. If the project later disables the tool,
 the checkout is off until the person runs personal `enable` again. Personal
 `enable` always deletes `.punt-labs/local/<tool>/disabled`, in either case.
 
+### TED-10: Make `disable` withdraw what its scope added
+
+**Applies to:** python, go
+
 **`disable`**:
 
 1. Remove the scope's import line from the scope's host file.
@@ -159,6 +202,10 @@ the checkout is off until the person runs personal `enable` again. Personal
 6. `disable --scope project --opt-out` also writes the committed opt-out
    (§2.7), in the same change that removes the shared marker.
 
+### TED-11: Rewrite vendored files only on `enable --refresh`
+
+**Applies to:** python, go
+
 **`enable --refresh`** is the one path that rewrites a deposited guide or any
 other vendored file: it makes the scope's vendored zone match the installed
 tool, writing each shipped file whose bytes differ and removing vendored files
@@ -172,6 +219,10 @@ In shared scope it is the reviewable upgrade, one diff in one PR. It never runs
 as a side effect of SessionStart, `install`, `uninstall`, a plugin update or
 any other verb (§2.5).
 
+### TED-12: Never rewrite identical bytes
+
+**Applies to:** python, go
+
 **No-op writes.** When the result of any step would equal the file's current
 bytes, the tool writes nothing: no temporary file, no rename, no mode or mtime
 change. This covers every file this standard names — guides, markers, host
@@ -179,6 +230,10 @@ files, settings files and the CI workflow — so repeating `enable` or `disable`
 leaves `git status --porcelain` empty.
 
 ## 2.4 Import Line Rules
+
+### TED-13: Write the canonical import line in its sorted position
+
+**Applies to:** python, go
 
 - **Canonical import string.** The line is exactly `@.punt-labs/<tool>/CLAUDE.md`,
   repo-relative, with `<tool>` the CLI binary name. Forward slashes; no `./` prefix; no trailing slash; no leading or trailing
@@ -206,6 +261,11 @@ leaves `git status --porcelain` empty.
   if absent; `disable` removes every match (collapsing an accidental duplicate to
   zero). This match rule is content-level; the write path (below) stays
   byte-preserving of the file's existing line endings.
+
+### TED-14: Count only top-level import lines
+
+**Applies to:** python, go
+
 - **Top-level only; skip code blocks.** Claude Code resolves `@`-imports only at
   the top level, never inside a code block. Both the presence scan (`enable`) and
   the removal (`disable`) must ignore any matching line that is inside a fenced
@@ -243,6 +303,11 @@ leaves `git status --porcelain` empty.
     more spaces. A line matching neither fenced-inside nor indented is top-level.
     `@`-imports and the canonical string are always written at column 0 with no
     info string, so they are top-level unless a fence above them is open.
+
+### TED-15: Lock, replace atomically and preserve bytes
+
+**Applies to:** python, go
+
 - **Serialized, atomic, byte-preserving write.** The read-append-replace on the
   host file must be:
   - **Mutually exclusive — one mandated sibling lock, every shared host file.**
@@ -294,6 +359,10 @@ leaves `git status --porcelain` empty.
 
 ## 2.5 Every tool ships a user-guide doc
 
+### TED-16: Ship a static user-guide doc
+
+**Applies to:** python, go
+
 **Every tool MUST ship a user-guide `CLAUDE.md`, deposited by `enable` into
 the scope's guide path (§2.3) — `<repo>/.punt-labs/<tool>/CLAUDE.md` shared,
 `<repo>/.punt-labs/local/<tool>/CLAUDE.md` personal.** It is the
@@ -313,6 +382,10 @@ guidance, not an exhaustive reference. Keep imports shallow: Claude Code resolve
 `@`-imports recursively only to a bounded depth, so do not chain deep import
 trees from the tool doc.
 
+### TED-17: Treat a deposited guide as a pinned copy
+
+**Applies to:** python, go
+
 **A deposited guide is a pinned copy; only a refresh changes it.** Once
 deposited, a guide changes only through `<tool> enable --refresh` (§2.3).
 SessionStart, `install`, `uninstall`, `upgrade`, `doctor`, a plugin update and
@@ -330,6 +403,10 @@ There are two layers, both inside the checkout:
 | Shared | `<repo>/CLAUDE.md` | committed | `<tool> enable --scope project` | `@.punt-labs/<tool>/CLAUDE.md` |
 | Personal | `<repo>/CLAUDE.local.md` | ignored | `<tool> enable` (`--scope local`) | `@.punt-labs/local/<tool>/CLAUDE.md` |
 
+### TED-18: Deposit guides and imports at repo scope only
+
+**Applies to:** python, go
+
 `enable` is the **sole** path that deposits a guide and writes an import line,
 and it writes the repo `CLAUDE.md` (shared) or `CLAUDE.local.md` (personal). `install` installs software only (the
 MCP server, binaries, models, data directories); it deposits no guide and writes
@@ -346,6 +423,10 @@ in a nested checkout, both enabling the same tool — is specific to the Punt La
 metarepo and is solved in metarepo config, never by bending the standard toward a
 global import.
 
+### TED-19: Strip legacy user-scope imports opportunistically
+
+**Applies to:** python, go
+
 **No user-scope import to tear down.** Forward integration, no compatibility shim
 ([PL-PP-1](../lang-rules/python/python-prohibited-patterns.md)): because
 `install` never writes `~/.claude/CLAUDE.md`, there is nothing for `uninstall` to
@@ -357,6 +438,10 @@ strip is a migration convenience, not an enforced invariant: the repo-scoped
 audit (§ 2.11) does not scan `~/.claude/CLAUDE.md`, so a user who never re-runs
 either verb keeps the stale line until they do. No tool writes that file, so no
 *new* user-scope import is ever created.
+
+### TED-20: Carry the gitignore baseline
+
+**Applies to:** python, go
 
 **Gitignore baseline.** Personal scope depends on these paths being ignored, so
 every repo with a Punt Labs tool carries them in its root `.gitignore`:
@@ -378,7 +463,9 @@ shared marker, guide, `.punt-labs/<tool>/config.*`) stay tracked.
 
 ## 2.7 The enabled marker
 
-### Shared marker
+### TED-21: The committed shared marker records project enablement
+
+**Applies to:** python, go
 
 The tool is **enabled for the project** when the marker file
 `<repo>/.punt-labs/<tool>/enabled` exists. `enable` writes it; `disable` deletes
@@ -401,14 +488,18 @@ enablement would leave a fresh clone off for everyone and re-litigate the
 decision on each machine. Genuinely per-*user* preferences (e.g. "do not contact me right now")
 are a separate, local/gitignored layer — see §2.14.
 
-### Personal marker and personal off
+### TED-22: Personal markers turn the tool on or off in one checkout
+
+**Applies to:** python, go
 
 `<repo>/.punt-labs/local/<tool>/enabled`, written by personal `enable`, turns
 the tool on in this checkout only. `<repo>/.punt-labs/local/<tool>/disabled`,
 written by personal `disable` in a project-enabled repo, turns it off in this
 checkout only. Both are ignored (§2.6) and never travel in a PR.
 
-### Committed opt-out
+### TED-23: A committed opt-out keeps the tool off
+
+**Applies to:** python, go
 
 `<repo>/.punt-labs/<tool>/opt-out` records that the project decided the tool
 stays off — for example, the Punt Labs meta-repo keeping ethos off because its
@@ -426,7 +517,9 @@ it, by deleting the file in a PR or with
 `enable --scope project --clear-opt-out`, which deletes it and enables in the
 same change. Automation never passes `--clear-opt-out`.
 
-### Effective state
+### TED-24: Gate behavior on effective state
+
+**Applies to:** python, go
 
 The tool is **on** in a checkout when no opt-out and no personal `disabled`
 marker exists, and the shared or the personal `enabled` marker does:
@@ -463,6 +556,10 @@ that both hook gates and `punt repo audit` read.
 
 ## 2.8 Hooks and config
 
+### TED-25: Edit settings files additively under the shared lock
+
+**Applies to:** python, go
+
 `enable` may register repo-scoped hooks or permissions. Its primary file outside
 its own subtree is the scope's settings file — `<repo>/.claude/settings.json`
 for shared scope, `<repo>/.claude/settings.local.json` for personal scope;
@@ -498,6 +595,11 @@ import-line append.
   an `enable` set, so `disable` cannot remove one; no author attribution is
   needed, and a flat string array carries none.
 - Neither touches unrelated entries.
+
+### TED-26: Grant the tool's whole production surface
+
+**Applies to:** python, go
+
 - For permissions the set is the tool's whole production surface, as a broad
   allow per surface plus exact `ask` carve-outs for unsafe operations: its CLI
   (`punt` excepted, 2.10), its MCP server wildcard as Claude Code names it
@@ -505,12 +607,15 @@ import-line append.
   `mcp__<name>__*` for one the tool registers natively), and
   `Skill(<plugin>:*)`, never a `-dev` rule. The table, and what counts as
   unsafe, is in
-  [permissions.md § 6](permissions.md#6-plugin-distributed-permissions)
-  principle 3. `disable` removes the same `allow` and `ask` values.
+  [PERM-14](permissions.md#perm-14-grant-every-surface-on-enable-with-ask-carve-outs). `disable` removes the same `allow` and `ask` values.
 
 Most tools ship hooks through their marketplace plugin (global). Repo-scoped hook
 deposit via `enable` is only for genuinely repo-scoped hook behavior, and only
 in shared scope.
+
+### TED-27: Own a tool CI workflow wholesale and safely
+
+**Applies to:** python, go
 
 **Carve-out: tool-owned CI workflow files.** Beyond `<repo>/.claude/settings.json`,
 shared-scope `enable` may own and install a CI workflow file it fully owns —
@@ -531,6 +636,10 @@ explicit override — so a user-authored or tampered workflow is never silently
 replaced.
 
 ## 2.9 `disable` is non-destructive
+
+### TED-28: Leave vendored data in place on `disable`
+
+**Applies to:** python, go
 
 `disable` stops composition; it does not erase vendored data. It removes the
 import line, deletes the `enabled` marker (2.7), and deregisters hooks, but leaves
@@ -556,6 +665,10 @@ of a toggle.
 
 ## 2.10 `punt` follows the convention
 
+### TED-29: Enable `punt` like any other tool
+
+**Applies to:** python, go
+
 `punt` is a tool like any other. `punt enable`, run in a repo, deposits
 `<repo>/.punt-labs/punt/CLAUDE.md` — punt's own static user guide (how to drive
 the `punt` CLI: `init`, `audit`, `reconcile`, and so on) — and adds
@@ -571,6 +684,10 @@ is not a tool user guide; where such content lives is out of scope for this
 standard.
 
 ## 2.11 What `punt repo audit` checks
+
+### TED-30: Audit enablement invariants for every tool
+
+**Applies to:** python, go
 
 The checks key on the markers (2.7), not on directory presence, so a dormant
 tool is not flagged. They run for every tool directory under `.punt-labs/`, not
@@ -615,6 +732,10 @@ only punt's own.
 
 ## 2.12 Migration
 
+### TED-31: Migrate managed sections forward without shims
+
+**Applies to:** python, go
+
 Forward integration, no compatibility shim
 ([PL-PP-1](../lang-rules/python/python-prohibited-patterns.md)):
 
@@ -634,7 +755,9 @@ Forward integration, no compatibility shim
   content to delete, leaving the user's prose plus bare import lines.
   Makefile marker sections are untouched.
 
-### Scope split migration (shared and personal enable)
+### TED-32: Migrate to scoped enablement without moving existing state
+
+**Applies to:** python, go
 
 Repos enabled before the scope split stay enabled: every marker, guide, import
 and grant that `enable` wrote was shared scope, so none moves. What changes:
@@ -659,7 +782,9 @@ and grant that `enable` wrote was shared scope, so none moves. What changes:
   `.punt-labs/<tool>/*.md` or `.punt-labs/lux.md`) move to an ignored
   `*.local.*` file (§2.14).
 
-### Sentinel migration (legacy root sentinel → `enabled` marker)
+### TED-33: Migrate a legacy sentinel to the marker on first run
+
+**Applies to:** python, go
 
 The in-directory `enabled` marker (2.7) is the presence marker; a repo-root
 sentinel is not, and the L0 presence contract in
@@ -701,6 +826,10 @@ Legacy content classes, preservation and destinations: [PLD-10](punt-labs-dir.md
 
 ## 2.13 `enable` versus `init`
 
+### TED-34: Keep `enable` and `init` distinct
+
+**Applies to:** python, go
+
 [distribution.md § Installation Scope](distribution.md#installation-scope)
 defines `init` as the per-repo verb that writes a tool's repo config file — in
 the **config zone**, `.punt-labs/<tool>/config.*`
@@ -724,7 +853,9 @@ concerns stay separate.
 
 ## 2.14 Dual surface, and the separate per-user layer
 
-### Two front-ends, one marker
+### TED-35: Write the same markers from CLI and MCP
+
+**Applies to:** python, go
 
 Every project-level tool exposes the `enable` / `disable` verbs, with both
 scopes, at **both** front-ends, and both write and remove the **same** markers
@@ -747,7 +878,9 @@ constrained to `"project" | "local"`, defaulting to `"local"`. The boolean shape
 forbidden `y|n` vocabulary (§2.3) wearing a type; the verb shape keeps the one
 vocabulary across both surfaces.
 
-### The per-user layer is separate
+### TED-36: Keep per-user preferences out of enablement
+
+**Applies to:** python, go
 
 Repo enablement (this standard) answers "is the tool on for this project, or
 for me in this checkout?" Shared scope is committed and whole-repo; personal
@@ -770,6 +903,10 @@ preference, not enablement); the `y|n` prohibition in §2.3 applies to
 *enablement* only.
 
 ## 2.15 What "off" means
+
+### TED-37: Do nothing automatic while off
+
+**Applies to:** python, go
 
 When the effective state (§2.7) is off — absent, dormant, opted out, or off for
 one person — the tool does nothing automatic in that checkout. biff's dormant
