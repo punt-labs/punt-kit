@@ -1,6 +1,6 @@
 # Integration Standards
 
-**Updated:** 2026-11-26
+**Updated:** 2026-11-27
 
 How Punt Labs tools discover, communicate with, and coordinate each other
 inside a Claude Code session — without hard dependencies.

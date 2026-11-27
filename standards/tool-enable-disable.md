@@ -36,14 +36,14 @@ dev standards and not the tool repo's own developer `CLAUDE.md`.
 | Path | Owner | Lifecycle |
 |------|-------|-----------|
 | `<repo>/CLAUDE.md` | The user | `enable` adds one import line, `disable` removes it; every other byte is untouched. `~/.claude/CLAUDE.md` is user-owned and no tool ever writes it |
-| `<repo>/.punt-labs/<tool>/` | Zoned ([punt-labs-dir.md PLD-7](punt-labs-dir.md#pld-7-tool-deployment-respects-ownership-zones)): tool (vendored + `enabled` marker), repo (config, including any file a daemon rewrites), user (local-convention) | Deposited on `enable`, vendored zone overwritten wholesale on upgrade (config and local-convention zones untouched), left dormant on `disable` |
+| `<repo>/.punt-labs/<tool>/` | Zoned ([punt-labs-dir.md PLD-7](punt-labs-dir.md#pld-7-tool-deployment-respects-ownership-zones)): tool (vendored + `enabled` marker), repo (config, including any file a daemon rewrites), user (local-convention) | Deposited on `enable` when absent, vendored zone overwritten wholesale only on `enable --refresh` (config and local-convention zones untouched), left dormant on `disable` |
 | `~/.punt-labs/<tool>/` | Zoned: tool (machine config/state), user (local-convention) | Holds machine-scoped config and state written by `install`; carries no imported guide and no import line |
 
 Each tool owns the **vendored zone** (and the `enabled` marker) of its
 `.punt-labs/<tool>/` subtree — not the whole subtree: the config zone is
 repo-owned and the local-convention zone is user-owned
 ([punt-labs-dir.md PLD-7](punt-labs-dir.md#pld-7-tool-deployment-respects-ownership-zones)).
-The tool rewrites the vendored zone on enable/upgrade and never
+The tool rewrites the vendored zone only on `enable --refresh` (§2.5) and never
 reads-modifies-merges it: same tool version, identical output. Repo config is
 **not** an input to that write and is never rewritten by it — enable/upgrade
 steps around the config and local-convention zones (below), and that includes
@@ -98,7 +98,8 @@ committed it, never because the tool inferred intent. A tool invoked in a repo
 where its marker is absent is a graceful no-op, not a trigger to self-enable.
 Automation counts as first use: agent start, a SessionStart hook, an installer,
 a plugin update or a nightly job never enables a tool in a repo where it is
-absent, dormant or opted out. Automation that re-runs `enable` in a repo where
+absent, dormant or opted out; converting a legacy sentinel to the marker
+(§2.12) records an existing enablement and is not enabling. Automation that re-runs `enable` in a repo where
 the tool is already enabled must leave the bytes unchanged (no-op writes,
 below) and skip any tool whose opt-out exists (§2.7).
 
@@ -116,6 +117,9 @@ deliberate `--scope project` edits team policy (`CLAUDE.md`,
 PR. Personal scope writes only paths the gitignore baseline (§2.6) ignores:
 before writing, the tool confirms each target is ignored and untracked
 (`git check-ignore`, `git ls-files`) and refuses, naming the file, if one is not.
+The check applies to the resolved path too: a personal target that is a symlink
+resolving outside the ignored paths (for example `CLAUDE.local.md` linked to
+`CLAUDE.md`) is refused.
 
 **`enable`** — idempotent; never an upgrade (see `--refresh`):
 
@@ -136,7 +140,8 @@ Personal `enable` in a repo where the shared marker is present writes no
 personal marker, guide, import or grant; it only deletes
 `.punt-labs/local/<tool>/disabled` if present, because the shared guide, import
 and grants already cover the checkout. If the project later disables the tool,
-the checkout is off until the person runs personal `enable` again.
+the checkout is off until the person runs personal `enable` again. Personal
+`enable` always deletes `.punt-labs/local/<tool>/disabled`, in either case.
 
 **`disable`**:
 
@@ -182,7 +187,7 @@ leaves `git status --porcelain` empty.
   the last tool-owned import line; if the host file has none, at the end of the
   file. It never moves an existing line, human or tool-owned. From a host file
   whose tool-owned lines are already sorted (an audit check, §2.11), every
-  enable order produces the same bytes (PL-1752).
+  enable order produces the same bytes.
 - **Ensured separation.** If the host file does not end in a newline, add one
   before inserting at the end, so the import is never glued to the user's last
   line.
@@ -305,7 +310,7 @@ trees from the tool doc.
 deposited, a guide changes only through `<tool> enable --refresh` (§2.3).
 SessionStart, `install`, `uninstall`, `upgrade`, `doctor`, a plugin update and
 a repeated `enable` never rewrite it, so a different tool version on another
-machine leaves the committed guide alone (PL-1111). `status` and `doctor` may
+machine leaves the committed guide alone. `status` and `doctor` may
 report that the installed guide differs from the deposited one, as information;
 they never rewrite it.
 
@@ -470,7 +475,7 @@ import-line append.
   that sorts after it (code-point order), or at the end if none does. It never
   moves or rewrites an existing entry, human or tool-owned, and writes nothing
   when no entry is missing (§2.3). From an array whose entries are sorted, every
-  tool order produces the same bytes (PL-1752);
+  tool order produces the same bytes;
   [permissions.md § 6](permissions.md#6-plugin-distributed-permissions) gives
   the `jq` form.
 - Personal scope grants the same set in `settings.local.json`. Claude Code
@@ -574,14 +579,19 @@ only punt's own.
   biconditional: enabled ⟺ import line, in each scope.
 - **Opt-out is exclusive.** No tool has both `opt-out` and the shared `enabled`
   marker, and an opted-out tool has no shared import line and no shared grants.
-- **Sorted.** Tool-owned import lines in each host file, and tool-owned
-  permission entries in each settings array, are in ascending code-point order
-  relative to one another (§2.4, §2.8). Human lines and entries are not checked.
+- **Sorted.** Tool-owned import lines in each host file are in ascending
+  code-point order relative to one another (§2.4); human lines are not checked.
+  A settings array that is not in ascending code-point order is a warning, not
+  a failure: insertion (§2.8) is order-independent only on a sorted array, and
+  permission order carries no meaning in Claude Code, so a one-time sort in a
+  reviewed PR fixes it.
 - **Personal paths are ignored.** Every path in the gitignore baseline (§2.6) is
   ignored (`git check-ignore`), and none is tracked
   (`git ls-files -ci --exclude-standard`); a tracked lock file fails.
 - **No orphan imports.** No `@.punt-labs/<tool>/CLAUDE.md` line without a
-  corresponding `.punt-labs/<tool>/CLAUDE.md` file (hard fail — the import will
+  corresponding `.punt-labs/<tool>/CLAUDE.md` file, and no
+  `@.punt-labs/local/<tool>/CLAUDE.md` line without
+  `.punt-labs/local/<tool>/CLAUDE.md` (hard fail — the import will
   break at read time).
 - **No stale enabled tools.** For every enabled tool, cross-check that the tool
   is actually installed (on `PATH`, or listed in an installed-tools manifest). A
@@ -623,9 +633,8 @@ Repos enabled before the scope split stay enabled: every marker, guide, import
 and grant that `enable` wrote was shared scope, so none moves. What changes:
 
 - A bare `<tool> enable` now means personal scope. Scripts, playbooks and docs
-  that enable a tool for a team pass `--scope project`. Until a tool ships
-  `--scope`, its bare `enable` is still shared scope and its README says so;
-  each tool's adoption is tracked in Linear (PL-1758 and its related issues).
+  that enable a tool for a team pass `--scope project`. A tool that does not
+  offer `--scope`, its bare `enable` is shared scope, and its README says so.
 - A loop that runs `<tool> enable` for every tool at agent start is removed, or
   limited to repos where the tool is already enabled, and honors the opt-out;
   under the no-op rule (§2.3) it then changes no bytes.

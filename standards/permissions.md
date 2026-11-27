@@ -1,6 +1,6 @@
 # Permissions Standards
 
-**Updated:** 2026-11-26
+**Updated:** 2026-11-27
 
 Rules for Claude Code permission configuration across all Punt Labs projects.
 Defines what agents can do automatically, what requires approval, and what is
