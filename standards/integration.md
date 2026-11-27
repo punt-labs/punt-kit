@@ -291,7 +291,7 @@ for install requirements. Pattern:
 
 Each peer integration is recorded, before implementation, with the layers
 it uses and how the consumer degrades when the building block is absent: in
-the consumer's DESIGN.md and in the
+the consumer's DESIGN.md or in the
 [integration matrix](../docs/integration-matrix.md). All arrows are
 **unidirectional** — building blocks never know about their consumers.
 
