@@ -73,7 +73,7 @@ Ship the user guide as package data read with `importlib.resources`, never a
 symlink into the installed package. Keep `enable` and `init` as separate
 commands, and give the MCP enablement tool `action: Literal["enable",
 "disable"]` and `scope: Literal["project", "local"] = "local"`. Keep personal
-preferences in `*.local.*` files. `punt repo audit` implements TED-30.
+preferences in `*.local.*` files. Implement TED-30's checks in `punt repo audit`.
 
 ## PY-INT-1: Integrate with peers without importing them
 
