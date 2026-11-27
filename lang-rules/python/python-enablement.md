@@ -53,7 +53,7 @@ after it, or append; never sort or move existing entries. Remove by exact
 value. Write under the sibling lock with the same atomic replace as
 PY-TED-1, and only when an entry was added or removed. Render a tool-owned CI
 workflow from a template and refuse to replace a file whose bytes are not the
-tool's previous render.
+tool's current render unless the operator passes the explicit override.
 
 ## PY-TED-4: Decide effective state in one function
 

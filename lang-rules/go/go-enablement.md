@@ -50,7 +50,8 @@ directory. Insert each missing entry before the first existing entry that
 sorts after it, or append; never sort or move existing entries. Remove by
 exact value, and write under the sibling lock with the atomic replace of
 GO-TED-1 only when an entry changed. Refuse to replace a CI workflow whose
-bytes are not the tool's previous render.
+bytes are not the tool's current render unless the operator passes the explicit
+override.
 
 ## GO-TED-4: Decide effective state in one function
 
